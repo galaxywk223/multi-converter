@@ -1,0 +1,2 @@
+faster_whisper==1.2.1
+torch==2.6.0+cu124

@@ -1,0 +1,89 @@
+@import "tailwindcss";
+
+:root {
+  font-family:
+    "Aptos",
+    "Segoe UI Variable",
+    "Segoe UI",
+    "PingFang SC",
+    "Microsoft YaHei UI",
+    sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  --background: #071015;
+  --foreground: #f5f7f2;
+  --muted-foreground: #9ca9b3;
+  --accent: #ec6e34;
+  --accent-strong: #ff8d55;
+  --accent-foreground: #fff8f3;
+  --ring: rgba(236, 110, 52, 0.56);
+  --danger: #ff8c8f;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-width: 320px;
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top, rgba(255, 255, 255, 0.04), transparent 25%),
+    linear-gradient(180deg, #09141b 0%, #071015 100%);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.field {
+  width: 100%;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--foreground);
+  padding: 0.9rem 1rem;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.field:focus {
+  outline: none;
+  border-color: rgba(236, 110, 52, 0.4);
+  box-shadow: 0 0 0 4px rgba(236, 110, 52, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+@keyframes float-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+main > * {
+  animation: float-in 320ms ease-out;
+}

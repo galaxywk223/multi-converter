@@ -1,0 +1,116 @@
+import { Cpu, Download, FolderSearch, Rocket, ShieldCheck } from "lucide-react";
+
+import { Badge } from "../components/ui/badge";
+import { Button } from "../components/ui/button";
+import { Card, CardDescription, CardTitle } from "../components/ui/card";
+import { useAppStore } from "../store/app-store";
+
+export function ModelsPage() {
+  const environment = useAppStore((state) => state.environment);
+  const models = useAppStore((state) => state.models);
+  const busy = useAppStore((state) => state.busy);
+  const ensureDefaultModel = useAppStore((state) => state.ensureDefaultModel);
+
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-6 lg:grid-cols-[0.92fr_1.08fr]">
+        <Card>
+          <CardTitle>环境检测</CardTitle>
+          <CardDescription className="mt-2">
+            应用启动时会先检查 Python、GPU、ffmpeg 和本地模型目录。
+          </CardDescription>
+          <div className="mt-6 grid gap-3">
+            <MetaRow label="推理设备" value={environment?.device ?? "unknown"} icon={Rocket} />
+            <MetaRow
+              label="Python"
+              value={environment?.pythonVersion ?? "未检测"}
+              icon={Cpu}
+            />
+            <MetaRow
+              label="ffmpeg"
+              value={environment?.ffmpegAvailable ? "可用" : "缺失"}
+              icon={ShieldCheck}
+            />
+            <MetaRow
+              label="模型目录"
+              value={environment?.defaultModelDir ?? "未设置"}
+              icon={FolderSearch}
+            />
+          </div>
+        </Card>
+
+        <Card>
+          <CardTitle>模型策略</CardTitle>
+          <CardDescription className="mt-2">
+            首次启动优先复用本机已有资源；没有再下载，避免安装包过大。
+          </CardDescription>
+          <div className="mt-5 grid gap-4 md:grid-cols-2">
+            {models.map((model) => (
+              <div
+                key={model.id}
+                className="rounded-[24px] border border-white/8 bg-white/4 p-4"
+              >
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-base font-semibold text-[var(--foreground)]">
+                      {model.name}
+                    </div>
+                    <div className="mt-1 text-xs text-[var(--muted-foreground)]">
+                      {model.sizeLabel}
+                    </div>
+                  </div>
+                  <Badge>{model.status}</Badge>
+                </div>
+                <p className="text-sm leading-7 text-[var(--muted-foreground)]">
+                  {model.description}
+                </p>
+                <div className="mt-5 text-xs leading-6 text-[var(--muted-foreground)]">
+                  {model.location ?? "当前还没有检测到本地缓存。"}
+                </div>
+                <div className="mt-5">
+                  <Button
+                    variant={model.status === "available" ? "secondary" : "primary"}
+                    size="sm"
+                    onClick={() => void ensureDefaultModel(model.id)}
+                    disabled={busy || model.status === "downloading"}
+                  >
+                    <Download className="h-4 w-4" />
+                    {model.status === "available"
+                      ? "重新检查"
+                      : model.status === "downloading"
+                        ? "安装中..."
+                        : "安装模型"}
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+function MetaRow({
+  label,
+  value,
+  icon: Icon,
+}: {
+  label: string;
+  value: string;
+  icon: typeof Rocket;
+}) {
+  return (
+    <div className="flex items-start gap-3 rounded-[22px] border border-white/8 bg-white/4 px-4 py-4">
+      <div className="rounded-full border border-white/10 bg-white/6 p-2">
+        <Icon className="h-4 w-4 text-[var(--accent)]" />
+      </div>
+      <div className="min-w-0">
+        <div className="text-xs uppercase tracking-[0.2em] text-[var(--muted-foreground)]">
+          {label}
+        </div>
+        <div className="mt-2 break-all text-sm leading-6 text-[var(--foreground)]">{value}</div>
+      </div>
+    </div>
+  );
+}
