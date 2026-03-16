@@ -26,6 +26,12 @@
 
 ## 本地开发
 
+首次安装前端依赖:
+
+```powershell
+npm run install:frontend
+```
+
 Python worker:
 
 ```powershell
@@ -50,8 +56,7 @@ npm run build
 桌面端联调:
 
 ```powershell
-cd frontend
-npm run dev:desktop
+npm run dev
 ```
 
 ## 依赖说明
@@ -68,3 +73,4 @@ npm run dev:desktop
 - Whisper 模型默认不提交到仓库，运行时优先检查本机已有模型。
 - `ffmpeg` sidecar 还需要在打包前放入 `src-tauri/binaries/`。
 - 如果 Tauri 编译失败，优先检查本机 Rust toolchain 是否完整安装。
+- 项目根目录已经提供统一脚本，推荐直接在根目录执行命令。

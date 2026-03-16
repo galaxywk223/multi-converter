@@ -4,8 +4,8 @@
   "version": "0.1.0",
   "identifier": "com.wangk.audio_to_text",
   "build": {
-    "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build",
+    "beforeDevCommand": "npm run frontend:dev",
+    "beforeBuildCommand": "npm run frontend:build",
     "devUrl": "http://localhost:1420",
     "frontendDist": "../frontend/dist"
   },
@@ -29,12 +29,20 @@
   },
   "bundle": {
     "active": true,
+    "icon": ["icons/icon.ico", "icons/icon.png"],
     "targets": ["nsis"],
     "windows": {
       "nsis": {
         "installMode": "currentUser"
       }
     },
-    "resources": ["../worker", "../run.py", "../requirements.txt"]
+    "resources": [
+      "../worker/__init__.py",
+      "../worker/cli.py",
+      "../worker/core.py",
+      "../worker/events.py",
+      "../run.py",
+      "../requirements.txt"
+    ]
   }
 }

@@ -5,11 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:desktop": "tauri dev",
+    "dev:desktop": "tauri dev -c ../src-tauri/tauri.conf.json",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri -c ../src-tauri/tauri.conf.json"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
