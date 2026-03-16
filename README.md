@@ -7,7 +7,7 @@
 - 视频转文字
 - 视频转音频
 
-这个项目目前以源码方式运行，暂未提供正式安装包。所有处理都在本地完成，不依赖云端服务。
+这个项目默认以源码方式运行，但现在已经支持在本机一键构建 Windows 安装包。所有处理都在本地完成，不依赖云端服务。
 
 ## 适合谁
 
@@ -33,14 +33,14 @@
 ## 当前状态
 
 - 平台：`Windows 10/11 x64`
-- 运行方式：本地源码运行
+- 运行方式：本地源码运行 / 本机构建 NSIS 安装包
 - 桌面壳：`Tauri 2`
 - 前端：`React + TypeScript + Vite`
 - 本地处理内核：`Python`
 
 ## 使用前准备
 
-当前仓库版需要这些环境：
+如果你要运行源码或自己打安装包，需要这些环境：
 
 - `Node.js`
 - `Python 3.13`
@@ -53,6 +53,8 @@
 - 图片提取文字不需要 Whisper 模型
 - 当前源码版默认依赖系统可用的 `ffmpeg`
 - 如果 `ffmpeg` 不在系统 `PATH`，可以在应用设置里指定路径
+- 安装包构建脚本会把当前机器上的 `ffmpeg.exe` 和项目 `venv` 一起打包进安装程序
+- 默认依赖使用可直接从 PyPI 安装的 `torch==2.6.0`，优先保证一键构建稳定；如果你要做 CUDA 定制包，可以再替换成对应 GPU 版本
 
 ## 快速开始
 
@@ -64,6 +66,18 @@ npm run doctor
 npm run dev
 ```
 
+如果你要生成 Windows 一键安装包，执行：
+
+```powershell
+npm run build:installer
+```
+
+默认产物目录：
+
+```text
+src-tauri\target\release\bundle\nsis\
+```
+
 如果只是前端或代码检查，常用命令如下：
 
 ```powershell
@@ -72,6 +86,19 @@ npm run frontend:lint
 npm run tauri:check
 npm run worker:check
 ```
+
+## 安装包说明
+
+- 安装包格式：`NSIS`
+- 默认安装范围：当前用户
+- 构建脚本会自动打包这些运行时内容
+  - 前端静态资源
+  - Tauri 桌面壳
+  - `worker/` Python 处理代码
+  - `venv/` Python 运行环境
+  - 当前机器上的 `ffmpeg.exe`
+- 安装包用户不需要额外安装 Python 或单独配置 ffmpeg
+- Whisper 模型不会预打包进安装程序，首次使用前仍需要在“模型”页面准备模型
 
 ## 怎么使用
 
@@ -148,6 +175,8 @@ npm run worker:check
 
 - 把 `ffmpeg` 放进系统 `PATH`
 - 或者在应用设置中手动指定 `ffmpeg` 路径
+
+如果你是通过 `npm run build:installer` 生成安装包，构建脚本会自动复制当前机器上的 `ffmpeg.exe` 作为安装包 sidecar。
 
 ### 输出文件保存在哪里？
 

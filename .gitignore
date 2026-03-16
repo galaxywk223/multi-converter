@@ -13,6 +13,7 @@ frontend/.vite/
 
 src-tauri/target/
 src-tauri/gen/
+src-tauri/binaries/ffmpeg-x86_64-pc-windows-msvc.exe
 
 .DS_Store
 Thumbs.db

@@ -4,13 +4,15 @@
   "version": "0.1.0",
   "scripts": {
     "setup:windows": "powershell -ExecutionPolicy Bypass -File scripts\\setup-windows.ps1",
+    "prepare:ffmpeg": "powershell -ExecutionPolicy Bypass -File scripts\\stage-ffmpeg-sidecar.ps1",
+    "build:installer": "powershell -ExecutionPolicy Bypass -File scripts\\build-installer.ps1",
     "doctor": "powershell -ExecutionPolicy Bypass -File scripts\\doctor.ps1",
     "install:frontend": "npm install --prefix frontend",
-    "dev": "set PATH=%USERPROFILE%\\.cargo\\bin;%PATH% && npx @tauri-apps/cli dev -c src-tauri/tauri.conf.json",
+    "dev": "npm run prepare:ffmpeg && set PATH=%USERPROFILE%\\.cargo\\bin;%PATH% && npx @tauri-apps/cli dev -c src-tauri/tauri.conf.json",
     "frontend:dev": "npm run dev --prefix frontend",
     "frontend:build": "npm run build --prefix frontend",
     "frontend:lint": "npm run lint --prefix frontend",
-    "tauri:check": "set PATH=%USERPROFILE%\\.cargo\\bin;%PATH% && cargo check --manifest-path src-tauri/Cargo.toml",
+    "tauri:check": "npm run prepare:ffmpeg && set PATH=%USERPROFILE%\\.cargo\\bin;%PATH% && cargo check --manifest-path src-tauri/Cargo.toml",
     "worker:check": "venv\\Scripts\\python.exe -m py_compile run.py worker\\cli.py worker\\core.py worker\\events.py"
   }
 }

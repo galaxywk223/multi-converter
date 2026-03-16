@@ -36,8 +36,16 @@ function App() {
     <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
       <div className="mx-auto min-h-screen max-w-[1180px] px-4 py-5 lg:px-6">
         <header className="mb-5 flex flex-col gap-4 rounded-3xl border border-[#e3e8ef] bg-white px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <h1 className="text-xl font-semibold tracking-tight">多功能转换器</h1>
+          <div className="flex min-w-0 items-center gap-3">
+            <img
+              src="/logo-mark.svg"
+              alt="Multi Converter logo"
+              className="h-11 w-11 shrink-0 rounded-2xl border border-[#d9e2ef] bg-[#f8fbff] p-1 shadow-sm"
+            />
+            <div className="min-w-0">
+              <h1 className="text-xl font-semibold tracking-tight">多功能转换器</h1>
+              <p className="text-sm text-[var(--muted-foreground)]">Multi Converter</p>
+            </div>
           </div>
           <nav className="flex flex-wrap gap-2">
             {navItems.map((item) => {

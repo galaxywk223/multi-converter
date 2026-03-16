@@ -42,15 +42,20 @@ function Resolve-PythonLauncher {
   throw "Python 3.13 was not found. Install Python 3.13 and make sure 'python' or 'py -3.13' is available."
 }
 
-Step "Install frontend dependencies"
-Invoke-CheckedCommand "npm" @("install", "--prefix", "frontend")
+function Ensure-Venv {
+  if (Test-Path "venv\Scripts\python.exe") {
+    return
+  }
 
-$pythonLauncher = Resolve-PythonLauncher
-
-if (-not (Test-Path "venv\Scripts\python.exe")) {
+  $pythonLauncher = Resolve-PythonLauncher
   Step "Create Python virtual environment"
   Invoke-CheckedCommand $pythonLauncher.Exe $pythonLauncher.Args
 }
+
+Step "Install frontend dependencies"
+Invoke-CheckedCommand "npm" @("install", "--prefix", "frontend")
+
+Ensure-Venv
 
 Step "Upgrade pip"
 Invoke-CheckedCommand "venv\Scripts\python.exe" @("-m", "pip", "install", "--upgrade", "pip")
@@ -58,5 +63,23 @@ Invoke-CheckedCommand "venv\Scripts\python.exe" @("-m", "pip", "install", "--upg
 Step "Install Python requirements"
 Invoke-CheckedCommand "venv\Scripts\python.exe" @("-m", "pip", "install", "-r", "requirements.txt")
 
+Step "Generate brand assets"
+Invoke-CheckedCommand "venv\Scripts\python.exe" @("scripts\generate-logo.py")
+
+Step "Stage ffmpeg sidecar"
+Invoke-CheckedCommand "powershell" @("-ExecutionPolicy", "Bypass", "-File", "scripts\stage-ffmpeg-sidecar.ps1")
+
+Step "Build desktop installer"
+$env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"
+Invoke-CheckedCommand "npx" @("@tauri-apps/cli", "build", "-c", "src-tauri/tauri.conf.json")
+
+$installer = Get-ChildItem "src-tauri\target\release\bundle\nsis\*.exe" |
+  Sort-Object LastWriteTime |
+  Select-Object -Last 1
+
+if ($null -eq $installer) {
+  throw "Installer was not generated."
+}
+
 Step "Done"
-Write-Host "Frontend and Python runtime dependencies are ready." -ForegroundColor Green
+Write-Host "Installer ready: $($installer.FullName)" -ForegroundColor Green

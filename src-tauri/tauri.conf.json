@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Multi Converter",
   "version": "0.1.0",
-  "identifier": "com.wangk.audio_to_text",
+  "identifier": "com.wangk.multiconverter",
   "build": {
     "beforeDevCommand": "npm run frontend:dev",
     "beforeBuildCommand": "npm run frontend:build",
@@ -31,18 +31,21 @@
     "active": true,
     "icon": ["icons/icon.ico", "icons/icon.png"],
     "targets": ["nsis"],
+    "externalBin": ["binaries/ffmpeg"],
     "windows": {
+      "webviewInstallMode": {
+        "type": "embedBootstrapper"
+      },
       "nsis": {
         "installMode": "currentUser"
       }
     },
-    "resources": [
-      "../worker/__init__.py",
-      "../worker/cli.py",
-      "../worker/core.py",
-      "../worker/events.py",
-      "../run.py",
-      "../requirements.txt"
-    ]
+    "resources": {
+      "../worker/": "worker/",
+      "../venv/": "venv/",
+      "../run.py": "run.py",
+      "../requirements.txt": "requirements.txt",
+      "../LICENSE": "LICENSE"
+    }
   }
 }
