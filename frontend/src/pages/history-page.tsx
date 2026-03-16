@@ -2,9 +2,9 @@ import { Clock3, ExternalLink, RotateCcw, TriangleAlert } from "lucide-react";
 
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
-import { Card, CardDescription, CardTitle } from "../components/ui/card";
+import { Card, CardTitle } from "../components/ui/card";
+import { compactFileLabel, formatJobType, formatRelativeTime } from "../lib/utils";
 import { useAppStore } from "../store/app-store";
-import { formatJobType, formatRelativeTime } from "../lib/utils";
 
 export function HistoryPage() {
   const history = useAppStore((state) => state.history);
@@ -16,10 +16,7 @@ export function HistoryPage() {
     <div className="space-y-6">
       <Card>
         <div className="flex items-center justify-between gap-4">
-          <div>
-            <CardTitle>最近任务</CardTitle>
-            <CardDescription>查看输出和错误。</CardDescription>
-          </div>
+          <CardTitle>历史</CardTitle>
           <Badge>{history.length ? `${history.length} 条记录` : "暂无记录"}</Badge>
         </div>
       </Card>
@@ -40,23 +37,26 @@ export function HistoryPage() {
                       {formatRelativeTime(item.finishedAt)}
                     </Badge>
                   </div>
-                  <div className="text-sm leading-7 text-[var(--muted-foreground)]">
+                  <div className="break-all text-sm leading-7 text-[var(--muted-foreground)]">
                     输出目录：{item.outputDir}
                   </div>
                   <div className="grid gap-2">
                     {item.inputs.map((input) => (
                       <div
                         key={input}
-                        className="rounded-2xl border border-white/8 bg-white/4 px-4 py-3 text-sm text-[var(--foreground)]"
+                        className="rounded-2xl border border-[#e3e8ef] bg-[#fafbfc] px-4 py-3"
+                        title={input}
                       >
-                        {input}
+                        <div className="overflow-hidden text-ellipsis whitespace-nowrap text-sm font-medium text-[var(--foreground)]">
+                          {compactFileLabel(input)}
+                        </div>
                       </div>
                     ))}
                   </div>
                   {item.error ? (
-                    <div className="flex items-start gap-3 rounded-2xl border border-[rgba(204,69,73,0.2)] bg-[rgba(204,69,73,0.08)] p-4 text-sm text-[var(--danger)]">
+                    <div className="flex items-start gap-3 rounded-2xl border border-[#fecaca] bg-[#fef2f2] p-4 text-sm text-[var(--danger)]">
                       <TriangleAlert className="mt-0.5 h-4 w-4" />
-                      <span>{item.error}</span>
+                      <span className="break-all">{item.error}</span>
                     </div>
                   ) : null}
                 </div>

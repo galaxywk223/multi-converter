@@ -46,6 +46,8 @@ const initialDraft: DraftJob = {
   jobType: "image_ocr",
   inputs: [],
   outputDir: "",
+  outputMode: "separate",
+  outputName: "",
 };
 
 const starterModels: ModelInfo[] = [
@@ -85,11 +87,16 @@ interface AppStore {
   chooseInputFiles: () => Promise<void>;
   chooseInputFolders: () => Promise<void>;
   removeInputPath: (path: string) => void;
+  moveInputPath: (path: string, direction: "up" | "down") => void;
+  reorderInputPath: (sourcePath: string, targetPath: string) => void;
   setDraftJobType: (jobType: JobType) => void;
+  setDraftOutputMode: (mode: "separate" | "merged") => void;
+  setDraftOutputName: (value: string) => void;
   chooseOutputDir: () => Promise<void>;
   chooseModelDir: () => Promise<void>;
   saveSettings: (settings: AppSettings) => Promise<void>;
   startDraftJob: () => Promise<void>;
+  resetDraft: () => void;
   cancelJob: (taskId: string) => Promise<void>;
   rerunHistoryJob: (taskId: string) => Promise<void>;
   ensureDefaultModel: (modelId: string, localPath?: string) => Promise<void>;
@@ -183,11 +190,7 @@ async function runMockJob(payload: StartJobPayload) {
     if (step.percent >= 100) {
       clearInterval(timer);
       mockTimers.delete(taskId);
-      const outputs = payload.inputs.map((item) =>
-        payload.jobType === "video_extract_audio"
-          ? `${payload.outputDir}\\${item.split(/[\\/]/).pop()?.replace(/\.[^.]+$/, ".mp3")}`
-          : `${payload.outputDir}\\${item.split(/[\\/]/).pop()?.replace(/\.[^.]+$/, ".txt")}`,
-      );
+      const outputs = buildMockOutputs(payload);
       useAppStore.setState((current) => ({
         jobs: current.jobs.map((jobItem) =>
           jobItem.taskId === taskId ? { ...jobItem, outputs } : jobItem,
@@ -367,11 +370,67 @@ export const useAppStore = create<AppStore>((set, get) => ({
       },
     });
   },
+  moveInputPath: (path, direction) => {
+    const inputs = [...get().draft.inputs];
+    const currentIndex = inputs.findIndex((item) => item === path);
+    if (currentIndex < 0) {
+      return;
+    }
+
+    const nextIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+    if (nextIndex < 0 || nextIndex >= inputs.length) {
+      return;
+    }
+
+    [inputs[currentIndex], inputs[nextIndex]] = [inputs[nextIndex]!, inputs[currentIndex]!];
+    set({
+      draft: {
+        ...get().draft,
+        inputs,
+      },
+    });
+  },
+  reorderInputPath: (sourcePath, targetPath) => {
+    if (sourcePath === targetPath) {
+      return;
+    }
+
+    const inputs = [...get().draft.inputs];
+    const sourceIndex = inputs.findIndex((item) => item === sourcePath);
+    const targetIndex = inputs.findIndex((item) => item === targetPath);
+    if (sourceIndex < 0 || targetIndex < 0) {
+      return;
+    }
+
+    const [moved] = inputs.splice(sourceIndex, 1);
+    inputs.splice(targetIndex, 0, moved!);
+
+    set({
+      draft: {
+        ...get().draft,
+        inputs,
+      },
+    });
+  },
   setDraftJobType: (jobType) =>
     set({
       draft: { ...get().draft, jobType, inputs: [] },
       draftWarnings: [],
       lastError: null,
+    }),
+  setDraftOutputMode: (mode) =>
+    set({
+      draft: {
+        ...get().draft,
+        outputMode: mode,
+      },
+    }),
+  setDraftOutputName: (value) =>
+    set({
+      draft: {
+        ...get().draft,
+        outputName: value,
+      },
     }),
   chooseOutputDir: async () => {
     const path = await selectOutputDir(get().draft.outputDir || get().settings.outputDir);
@@ -429,6 +488,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
       jobType: state.draft.jobType,
       inputs: state.draft.inputs,
       outputDir,
+      outputMode: state.draft.outputMode,
+      outputName: state.draft.outputName.trim() || undefined,
       modelName: state.settings.modelId,
       modelDir: state.settings.modelPath,
       language: state.settings.language,
@@ -443,6 +504,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const newJob: JobRecord = {
       taskId,
       type: payload.jobType,
+      outputMode: payload.outputMode,
+      outputName: payload.outputName,
       status: "queued",
       createdAt: now(),
       updatedAt: now(),
@@ -462,8 +525,27 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set({
       lastError: null,
       jobs: [newJob, ...state.jobs].slice(0, 24),
+      draft: {
+        ...state.draft,
+        inputs: [],
+        outputDir,
+        outputName: "",
+      },
+      draftWarnings: [],
     });
   },
+  resetDraft: () =>
+    set((state) => ({
+      draft: {
+        ...state.draft,
+        inputs: [],
+        outputDir: state.draft.outputDir || state.settings.outputDir,
+        outputMode: "separate",
+        outputName: "",
+      },
+      draftWarnings: [],
+      lastError: null,
+    })),
   cancelJob: async (taskId) => {
     if (desktopMode) {
       await stopJob(taskId);
@@ -501,6 +583,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const queuedJob: JobRecord = {
       taskId: nextTaskId,
       type: payload.jobType,
+      outputMode: payload.outputMode,
+      outputName: payload.outputName,
       status: "queued",
       createdAt: now(),
       updatedAt: now(),
@@ -580,3 +664,44 @@ export const useAppStore = create<AppStore>((set, get) => ({
     await revealPath(path);
   },
 }));
+
+function buildMockOutputs(payload: StartJobPayload) {
+  const extension = payload.jobType === "video_extract_audio" ? ".mp3" : ".txt";
+  const makeBase = (value: string) => value.replace(/[\\/:*?"<>|]+/g, "_").trim() || "output";
+  const withExtension = (value: string) =>
+    value.toLowerCase().endsWith(extension) ? value : `${value}${extension}`;
+
+  if (payload.outputMode === "merged") {
+    const mergedName = withExtension(makeBase(payload.outputName || defaultMergedName(payload.jobType)));
+    return [`${payload.outputDir}\\${mergedName}`];
+  }
+
+  const outputName = payload.outputName?.trim();
+  if (!outputName) {
+    return payload.inputs.map((item) =>
+      payload.jobType === "video_extract_audio"
+        ? `${payload.outputDir}\\${item.split(/[\\/]/).pop()?.replace(/\.[^.]+$/, ".mp3")}`
+        : `${payload.outputDir}\\${item.split(/[\\/]/).pop()?.replace(/\.[^.]+$/, ".txt")}`,
+    );
+  }
+
+  const baseName = makeBase(outputName.replace(/\.[^.]+$/, ""));
+  return payload.inputs.map((_item, index) => {
+    const suffix = payload.inputs.length > 1 ? `_${String(index + 1).padStart(2, "0")}` : "";
+    return `${payload.outputDir}\\${withExtension(`${baseName}${suffix}`)}`;
+  });
+}
+
+function defaultMergedName(jobType: JobType) {
+  switch (jobType) {
+    case "video_extract_audio":
+      return "merged_audio";
+    case "image_ocr":
+      return "merged_ocr";
+    case "audio_transcribe":
+    case "video_transcribe":
+      return "merged_text";
+    default:
+      return "merged_output";
+  }
+}

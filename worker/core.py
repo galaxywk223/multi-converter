@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
+from uuid import uuid4
 
 from faster_whisper import WhisperModel
 
@@ -23,6 +25,8 @@ class RunConfig:
     job_type: str
     inputs: list[Path]
     output_dir: Path
+    output_mode: str = "separate"
+    output_name: str | None = None
     model_name: str = "medium"
     model_dir: Path | None = None
     language: str = "zh"
@@ -174,6 +178,8 @@ def run_job(config: RunConfig, events: EventWriter) -> dict[str, object]:
         "jobType": config.job_type,
         "totalFiles": len(input_files),
         "outputDir": str(config.output_dir.resolve()),
+        "outputMode": config.output_mode,
+        "outputName": config.output_name,
         "outputs": [str(path) for path in outputs],
     }
 
@@ -192,7 +198,7 @@ def transcribe_media(config: RunConfig, files: list[Path], events: EventWriter) 
         download_root=str(model_dir),
     )
 
-    outputs: list[Path] = []
+    sections: list[tuple[Path, list[str]]] = []
     total = len(files)
     for index, file_path in enumerate(files, start=1):
         started_at = time.time()
@@ -204,7 +210,6 @@ def transcribe_media(config: RunConfig, files: list[Path], events: EventWriter) 
             message=f"读取 {file_path.name}",
         )
 
-        output_file = config.output_dir / f"{file_path.stem}.txt"
         segments, _info = model.transcribe(
             str(file_path),
             language=config.language,
@@ -223,27 +228,37 @@ def transcribe_media(config: RunConfig, files: list[Path], events: EventWriter) 
                 f"[{format_timestamp(segment.start)} -> {format_timestamp(segment.end)}] {text}",
             )
 
-        write_text_output(output_file, file_path.name, lines, events, total, index, "writing")
+        sections.append((file_path, lines))
+        if config.output_mode == "separate":
+            output_file = build_output_file(config, file_path, index, total, ".txt")
+            write_text_output(output_file, file_path.name, lines, events, total, index, "writing")
+            events.progress(
+                stage="transcribing",
+                percent=(index / total) * 100,
+                current_file=file_path.name,
+                total_files=total,
+                eta=estimate_remaining(started_at, total, index),
+                message=f"已生成 {output_file.name}",
+            )
 
-        elapsed = time.time() - started_at
-        percent = (index / total) * 100
-        remaining = total - index
+    if config.output_mode == "merged":
+        output_file = build_merged_output_file(config, ".txt", "merged_text")
+        write_merged_text_output(output_file, sections, events, "writing")
         events.progress(
-            stage="transcribing",
-            percent=percent,
-            current_file=file_path.name,
+            stage="completed",
+            percent=100,
+            current_file=None,
             total_files=total,
-            eta=round(elapsed * remaining, 2) if remaining else 0,
             message=f"已生成 {output_file.name}",
         )
-        outputs.append(output_file.resolve())
+        return [output_file.resolve()]
 
-    return outputs
+    return [build_output_file(config, file_path, index, total, ".txt").resolve() for index, (file_path, _lines) in enumerate(sections, start=1)]
 
 
 def extract_text_from_images(config: RunConfig, files: list[Path], events: EventWriter) -> list[Path]:
     ocr = create_ocr_engine()
-    outputs: list[Path] = []
+    sections: list[tuple[Path, list[str]]] = []
     total = len(files)
 
     for index, file_path in enumerate(files, start=1):
@@ -258,105 +273,205 @@ def extract_text_from_images(config: RunConfig, files: list[Path], events: Event
 
         result, _elapsed = ocr(str(file_path))
         lines = extract_ocr_lines(result)
-        output_file = config.output_dir / f"{file_path.stem}.txt"
-        write_text_output(output_file, file_path.name, lines, events, total, index, "writing")
+        sections.append((file_path, lines))
+        if config.output_mode == "separate":
+            output_file = build_output_file(config, file_path, index, total, ".txt")
+            write_text_output(output_file, file_path.name, lines, events, total, index, "writing")
+            events.progress(
+                stage="recognizing",
+                percent=(index / total) * 100,
+                current_file=file_path.name,
+                total_files=total,
+                eta=estimate_remaining(started_at, total, index),
+                message=f"已生成 {output_file.name}",
+            )
 
-        elapsed = time.time() - started_at
-        percent = (index / total) * 100
-        remaining = total - index
+    if config.output_mode == "merged":
+        output_file = build_merged_output_file(config, ".txt", "merged_ocr")
+        write_merged_text_output(output_file, sections, events, "writing")
         events.progress(
-            stage="recognizing",
-            percent=percent,
-            current_file=file_path.name,
+            stage="completed",
+            percent=100,
+            current_file=None,
             total_files=total,
-            eta=round(elapsed * remaining, 2) if remaining else 0,
             message=f"已生成 {output_file.name}",
         )
-        outputs.append(output_file.resolve())
+        return [output_file.resolve()]
 
-    return outputs
+    return [build_output_file(config, file_path, index, total, ".txt").resolve() for index, (file_path, _lines) in enumerate(sections, start=1)]
 
 
 def extract_audio(config: RunConfig, files: list[Path], events: EventWriter) -> list[Path]:
-    outputs: list[Path] = []
     total = len(files)
+    if config.output_mode == "merged":
+        return extract_audio_merged(config, files, events)
+
+    outputs: list[Path] = []
     for index, file_path in enumerate(files, start=1):
-        output_file = config.output_dir / f"{file_path.stem}.mp3"
         started_at = time.time()
-        events.log("info", f"Extracting audio from {file_path.name}")
-        command = [
-            config.ffmpeg_path,
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-nostats",
-            "-progress",
-            "pipe:1",
-            "-y",
-            "-i",
-            str(file_path),
-            "-vn",
-            "-acodec",
-            "libmp3lame",
-            "-b:a",
-            "192k",
-            str(output_file),
-        ]
-        try:
-            process = subprocess.Popen(
-                command,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                bufsize=1,
-                universal_newlines=True,
-            )
-        except FileNotFoundError as exc:
-            raise RuntimeError("未找到 ffmpeg，可执行文件未安装或未配置。") from exc
-
-        last_timestamp = ""
-        while True:
-            line = process.stdout.readline() if process.stdout else ""
-            if not line:
-                if process.poll() is not None:
-                    break
-                continue
-            line = line.strip()
-            if line.startswith("out_time_ms="):
-                raw = line.split("=", 1)[1]
-                if raw.isdigit():
-                    stamp = format_timestamp(int(raw) / 1_000_000)
-                    if stamp != last_timestamp:
-                        last_timestamp = stamp
-                        base_percent = ((index - 1) / total) * 100
-                        intra_percent = min(int(raw) / 3_000_000, 0.99) * (100 / total)
-                        events.progress(
-                            stage="extracting",
-                            percent=min(base_percent + intra_percent, 99.0),
-                            current_file=file_path.name,
-                            total_files=total,
-                            message=f"{file_path.name} -> {stamp}",
-                        )
-            elif line == "progress=end":
-                break
-
-        return_code = process.wait()
-        if return_code != 0:
-            error_output = process.stderr.read().strip() if process.stderr else ""
-            raise RuntimeError(error_output or f"ffmpeg failed with exit code {return_code}")
-
-        elapsed = time.time() - started_at
-        remaining = total - index
+        output_file = build_output_file(config, file_path, index, total, ".mp3")
+        extract_audio_file(config, file_path, output_file, index, total, events)
         events.progress(
             stage="extracting",
             percent=(index / total) * 100,
             current_file=file_path.name,
             total_files=total,
-            eta=round(elapsed * remaining, 2) if remaining else 0,
+            eta=estimate_remaining(started_at, total, index),
             message=f"已生成 {output_file.name}",
         )
         outputs.append(output_file.resolve())
     return outputs
+
+
+def extract_audio_merged(config: RunConfig, files: list[Path], events: EventWriter) -> list[Path]:
+    temp_dir = config.output_dir / f".merge_{uuid4().hex}"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    temp_outputs: list[Path] = []
+    total = len(files)
+
+    try:
+        for index, file_path in enumerate(files, start=1):
+            temp_output = temp_dir / f"{index:03d}.mp3"
+            started_at = time.time()
+            extract_audio_file(config, file_path, temp_output, index, total, events)
+            events.progress(
+                stage="extracting",
+                percent=(index / total) * 92,
+                current_file=file_path.name,
+                total_files=total,
+                eta=estimate_remaining(started_at, total, index),
+                message=f"已提取 {file_path.name}",
+            )
+            temp_outputs.append(temp_output.resolve())
+
+        output_file = build_merged_output_file(config, ".mp3", "merged_audio")
+        concat_audio_files(config, temp_outputs, output_file, events, total)
+        events.progress(
+            stage="completed",
+            percent=100,
+            current_file=None,
+            total_files=total,
+            message=f"已生成 {output_file.name}",
+        )
+        return [output_file.resolve()]
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def extract_audio_file(
+    config: RunConfig,
+    file_path: Path,
+    output_file: Path,
+    index: int,
+    total: int,
+    events: EventWriter,
+) -> None:
+    events.log("info", f"Extracting audio from {file_path.name}")
+    command = [
+        config.ffmpeg_path,
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-nostats",
+        "-progress",
+        "pipe:1",
+        "-y",
+        "-i",
+        str(file_path),
+        "-vn",
+        "-acodec",
+        "libmp3lame",
+        "-b:a",
+        "192k",
+        str(output_file),
+    ]
+    try:
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+            universal_newlines=True,
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError("未找到 ffmpeg，可执行文件未安装或未配置。") from exc
+
+    last_timestamp = ""
+    while True:
+        line = process.stdout.readline() if process.stdout else ""
+        if not line:
+            if process.poll() is not None:
+                break
+            continue
+        line = line.strip()
+        if line.startswith("out_time_ms="):
+            raw = line.split("=", 1)[1]
+            if raw.isdigit():
+                stamp = format_timestamp(int(raw) / 1_000_000)
+                if stamp != last_timestamp:
+                    last_timestamp = stamp
+                    base_percent = ((index - 1) / total) * 100
+                    intra_percent = min(int(raw) / 3_000_000, 0.99) * (100 / total)
+                    events.progress(
+                        stage="extracting",
+                        percent=min(base_percent + intra_percent, 99.0),
+                        current_file=file_path.name,
+                        total_files=total,
+                        message=f"{file_path.name} -> {stamp}",
+                    )
+        elif line == "progress=end":
+            break
+
+    return_code = process.wait()
+    if return_code != 0:
+        error_output = process.stderr.read().strip() if process.stderr else ""
+        raise RuntimeError(error_output or f"ffmpeg failed with exit code {return_code}")
+
+
+def concat_audio_files(
+    config: RunConfig,
+    parts: list[Path],
+    output_file: Path,
+    events: EventWriter,
+    total: int,
+) -> None:
+    list_file = output_file.parent / f".concat_{uuid4().hex}.txt"
+    try:
+        with list_file.open("w", encoding="utf-8") as handle:
+            for part in parts:
+                escaped = str(part).replace("\\", "/").replace("'", r"'\''")
+                handle.write(f"file '{escaped}'\n")
+
+        events.progress(
+            stage="writing",
+            percent=95,
+            current_file=None,
+            total_files=total,
+            message=f"合并输出为 {output_file.name}",
+        )
+        command = [
+            config.ffmpeg_path,
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            str(list_file),
+            "-c",
+            "copy",
+            str(output_file),
+        ]
+        result = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="ignore")
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr.strip() or "音频合并失败。")
+    finally:
+        if list_file.exists():
+            list_file.unlink(missing_ok=True)
 
 
 def write_text_output(
@@ -381,6 +496,62 @@ def write_text_output(
         handle.write("\n".join(lines))
         if lines:
             handle.write("\n")
+
+
+def write_merged_text_output(
+    output_file: Path,
+    sections: list[tuple[Path, list[str]]],
+    events: EventWriter,
+    stage: str,
+) -> None:
+    events.progress(
+        stage=stage,
+        percent=96,
+        current_file=None,
+        total_files=len(sections),
+        message=f"写入 {output_file.name}",
+    )
+    with output_file.open("w", encoding="utf-8") as handle:
+        for index, (source_file, lines) in enumerate(sections, start=1):
+            handle.write(f"文件 {index}: {source_file.name}\n")
+            handle.write("-" * 30 + "\n")
+            handle.write("\n".join(lines))
+            handle.write("\n\n")
+
+
+def build_output_file(
+    config: RunConfig,
+    source_file: Path,
+    index: int,
+    total: int,
+    extension: str,
+) -> Path:
+    if config.output_name:
+        base_name = sanitize_output_name(Path(config.output_name).stem or config.output_name)
+        if total > 1:
+            return config.output_dir / f"{base_name}_{index:02d}{extension}"
+        return config.output_dir / ensure_extension(base_name, extension)
+    return config.output_dir / f"{source_file.stem}{extension}"
+
+
+def build_merged_output_file(config: RunConfig, extension: str, fallback_name: str) -> Path:
+    base_name = sanitize_output_name(config.output_name or fallback_name)
+    return config.output_dir / ensure_extension(base_name, extension)
+
+
+def ensure_extension(name: str, extension: str) -> str:
+    return name if name.lower().endswith(extension) else f"{name}{extension}"
+
+
+def sanitize_output_name(name: str) -> str:
+    cleaned = "".join("_" if char in '\\/:*?"<>|' else char for char in name).strip()
+    return cleaned or "output"
+
+
+def estimate_remaining(started_at: float, total: int, index: int) -> float:
+    elapsed = time.time() - started_at
+    remaining = total - index
+    return round(elapsed * remaining, 2) if remaining else 0
 
 
 def can_use_ocr() -> bool:

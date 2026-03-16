@@ -14,14 +14,14 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  --background: #071015;
-  --foreground: #f5f7f2;
-  --muted-foreground: #9ca9b3;
-  --accent: #ec6e34;
-  --accent-strong: #ff8d55;
-  --accent-foreground: #fff8f3;
-  --ring: rgba(236, 110, 52, 0.56);
-  --danger: #ff8c8f;
+  --background: #f5f7fa;
+  --foreground: #18212b;
+  --muted-foreground: #5f6b7a;
+  --accent: #2563eb;
+  --accent-strong: #1d4ed8;
+  --accent-foreground: #ffffff;
+  --ring: rgba(37, 99, 235, 0.24);
+  --danger: #dc2626;
 }
 
 * {
@@ -37,9 +37,9 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background:
-    radial-gradient(circle at top, rgba(255, 255, 255, 0.04), transparent 25%),
-    linear-gradient(180deg, #09141b 0%, #071015 100%);
+  background: var(--background);
+  color: var(--foreground);
+  overflow-x: hidden;
 }
 
 button,
@@ -51,39 +51,39 @@ textarea {
 
 #root {
   min-height: 100vh;
+  overflow-x: hidden;
 }
 
 .field {
   width: 100%;
-  border-radius: 20px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.04);
+  min-width: 0;
+  border-radius: 14px;
+  border: 1px solid #d6dde6;
+  background: #ffffff;
   color: var(--foreground);
-  padding: 0.9rem 1rem;
+  padding: 0.8rem 0.95rem;
   transition:
-    border-color 0.2s ease,
-    background 0.2s ease,
-    box-shadow 0.2s ease;
+    border-color 0.16s ease,
+    box-shadow 0.16s ease;
 }
 
 .field:focus {
   outline: none;
-  border-color: rgba(236, 110, 52, 0.4);
-  box-shadow: 0 0 0 4px rgba(236, 110, 52, 0.12);
-  background: rgba(255, 255, 255, 0.06);
+  border-color: #9dbcf8;
+  box-shadow: 0 0 0 3px var(--ring);
 }
 
-@keyframes float-in {
+main > * {
+  animation: fade-in 180ms ease-out;
+}
+
+@keyframes fade-in {
   from {
     opacity: 0;
-    transform: translateY(10px);
+    transform: translateY(4px);
   }
   to {
     opacity: 1;
     transform: translateY(0);
   }
-}
-
-main > * {
-  animation: float-in 320ms ease-out;
 }

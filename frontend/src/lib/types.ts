@@ -39,6 +39,8 @@ export interface JobLog {
 export interface JobRecord {
   taskId: string;
   type: JobType;
+  outputMode: "separate" | "merged";
+  outputName?: string;
   status: JobStatus;
   createdAt: string;
   updatedAt: string;
@@ -65,6 +67,8 @@ export interface StartJobPayload {
   jobType: JobType;
   inputs: string[];
   outputDir: string;
+  outputMode: "separate" | "merged";
+  outputName?: string;
   modelName: string;
   modelDir?: string;
   language: string;
@@ -112,6 +116,8 @@ export interface DraftJob {
   jobType: JobType;
   inputs: string[];
   outputDir: string;
+  outputMode: "separate" | "merged";
+  outputName: string;
 }
 
 export interface InputSelectionResult {

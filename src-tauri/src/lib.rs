@@ -22,10 +22,13 @@ use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+#[serde(default)]
 pub struct StartJobPayload {
     pub job_type: String,
     pub inputs: Vec<String>,
     pub output_dir: String,
+    pub output_mode: String,
+    pub output_name: Option<String>,
     pub model_name: String,
     pub model_dir: Option<String>,
     pub language: String,
@@ -397,6 +400,8 @@ fn spawn_queued_job(app: &AppHandle, state: DesktopState, job: QueuedJob) -> Res
         .arg(&job.payload.job_type)
         .arg("--output-dir")
         .arg(&job.payload.output_dir)
+        .arg("--output-mode")
+        .arg(&job.payload.output_mode)
         .arg("--model-name")
         .arg(&job.payload.model_name)
         .arg("--model-dir")
@@ -412,6 +417,10 @@ fn spawn_queued_job(app: &AppHandle, state: DesktopState, job: QueuedJob) -> Res
         .arg(&job.payload.device)
         .arg("--ffmpeg-path")
         .arg(resolve_ffmpeg_path(app, job.payload.ffmpeg_path.as_deref()));
+
+    if let Some(output_name) = &job.payload.output_name {
+        command.arg("--output-name").arg(output_name);
+    }
 
     for input in &job.payload.inputs {
         command.arg("--input").arg(input);
@@ -700,6 +709,11 @@ fn prepare_job(
         job_type: payload.job_type,
         inputs: normalized.accepted,
         output_dir,
+        output_mode: normalize_output_mode(&payload.output_mode),
+        output_name: payload
+            .output_name
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty()),
         model_name: if payload.model_name.trim().is_empty() {
             settings_snapshot.model_id.clone()
         } else {
@@ -847,7 +861,6 @@ fn normalize_input_paths(paths: &[String], job_type: &str) -> NormalizeInputsRes
         }
     }
 
-    accepted.sort();
     NormalizeInputsResult { accepted, skipped }
 }
 
@@ -1073,6 +1086,13 @@ fn normalize_device(value: &str) -> String {
         "cpu" => "cpu".to_string(),
         "cuda" => "cuda".to_string(),
         _ => "auto".to_string(),
+    }
+}
+
+fn normalize_output_mode(value: &str) -> String {
+    match value.trim() {
+        "merged" => "merged".to_string(),
+        _ => "separate".to_string(),
     }
 }
 

@@ -1,8 +1,8 @@
 import { Cpu, Download, FolderSearch, HardDriveDownload, Rocket, ShieldCheck } from "lucide-react";
 
-import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
-import { Card, CardDescription, CardTitle } from "../components/ui/card";
+import { Card, CardTitle } from "../components/ui/card";
+import { Badge } from "../components/ui/badge";
 import { useAppStore } from "../store/app-store";
 
 export function ModelsPage() {
@@ -15,11 +15,10 @@ export function ModelsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-6 lg:grid-cols-[0.92fr_1.08fr]">
+      <div className="grid gap-6 lg:grid-cols-[0.8fr_1.2fr]">
         <Card>
           <CardTitle>环境检测</CardTitle>
-          <CardDescription className="mt-2">运行环境状态。</CardDescription>
-          <div className="mt-6 grid gap-3">
+          <div className="mt-5 grid gap-3">
             <MetaRow label="推理设备" value={environment?.device ?? "unknown"} icon={Rocket} />
             <MetaRow label="Python" value={environment?.pythonVersion ?? "未检测"} icon={Cpu} />
             <MetaRow
@@ -54,10 +53,9 @@ export function ModelsPage() {
 
         <Card>
           <CardTitle>模型</CardTitle>
-          <CardDescription className="mt-2">安装或切换模型目录。</CardDescription>
           <div className="mt-5 grid gap-4 md:grid-cols-2">
             {models.map((model) => (
-              <div key={model.id} className="rounded-[24px] border border-white/8 bg-white/4 p-4">
+              <div key={model.id} className="rounded-2xl border border-[#e3e8ef] bg-[#fafbfc] p-4">
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <div>
                     <div className="text-base font-semibold text-[var(--foreground)]">
@@ -72,7 +70,7 @@ export function ModelsPage() {
                 <p className="text-sm leading-7 text-[var(--muted-foreground)]">
                   {model.description}
                 </p>
-                <div className="mt-5 text-xs leading-6 text-[var(--muted-foreground)]">
+                <div className="mt-5 break-all text-xs leading-6 text-[var(--muted-foreground)]">
                   {model.location ?? "当前还没有检测到本地缓存。"}
                 </div>
                 <div className="mt-5">
@@ -109,9 +107,9 @@ function MetaRow({
   icon: typeof Rocket;
 }) {
   return (
-    <div className="flex items-start gap-3 rounded-[22px] border border-white/8 bg-white/4 px-4 py-4">
-      <div className="rounded-full border border-white/10 bg-white/6 p-2">
-        <Icon className="h-4 w-4 text-[var(--accent)]" />
+    <div className="flex items-start gap-3 rounded-2xl border border-[#e3e8ef] bg-[#fafbfc] px-4 py-4">
+      <div className="rounded-xl border border-[#d6dde6] bg-white p-2">
+        <Icon className="h-4 w-4 text-[#2563eb]" />
       </div>
       <div className="min-w-0">
         <div className="text-xs uppercase tracking-[0.2em] text-[var(--muted-foreground)]">

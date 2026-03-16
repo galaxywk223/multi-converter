@@ -5,7 +5,7 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 
 import { Button } from "../components/ui/button";
-import { Card, CardDescription, CardTitle } from "../components/ui/card";
+import { Card, CardTitle } from "../components/ui/card";
 import { useAppStore } from "../store/app-store";
 
 const settingsSchema = z.object({
@@ -45,10 +45,9 @@ export function SettingsPage() {
   const values = useWatch({ control: form.control });
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[0.85fr_1.15fr]">
+    <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
       <Card>
-        <CardTitle>运行默认值</CardTitle>
-        <CardDescription className="mt-2">当前默认配置。</CardDescription>
+        <CardTitle>当前默认值</CardTitle>
         <div className="mt-6 grid gap-3 text-sm text-[var(--muted-foreground)]">
           <SummaryRow label="默认模型" value={values.modelId ?? "-"} />
           <SummaryRow label="设备策略" value={values.devicePreference ?? "-"} />
@@ -60,10 +59,9 @@ export function SettingsPage() {
 
       <Card>
         <CardTitle>设置</CardTitle>
-        <CardDescription className="mt-2">仅影响新任务。</CardDescription>
 
         <form
-          className="mt-6 grid gap-5"
+          className="mt-5 grid gap-5"
           onSubmit={form.handleSubmit(async (nextValues) => {
             await saveSettings({
               ...nextValues,
@@ -74,11 +72,11 @@ export function SettingsPage() {
         >
           <Field label="默认输出目录" error={form.formState.errors.outputDir?.message}>
             <div className="flex gap-3">
-                <input
-                  {...form.register("outputDir")}
-                  className="field"
-                  placeholder="例如 C:\\Users\\wangk\\Documents\\MultiConverter"
-                />
+              <input
+                {...form.register("outputDir")}
+                className="field"
+                placeholder="例如 C:\\Users\\wangk\\Documents\\MultiConverter"
+              />
               <Button
                 variant="secondary"
                 type="button"
@@ -124,7 +122,7 @@ export function SettingsPage() {
             <input {...form.register("ffmpegPath")} className="field" placeholder="留空则从 PATH 自动检测" />
           </Field>
 
-          <div className="grid gap-5 md:grid-cols-3">
+            <div className="grid gap-5 md:grid-cols-3">
             <Field label="设备策略" error={form.formState.errors.devicePreference?.message}>
               <select {...form.register("devicePreference")} className="field">
                 <option value="auto">自动</option>
@@ -179,7 +177,7 @@ function Field({
 
 function SummaryRow({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="rounded-[22px] border border-white/8 bg-white/4 px-4 py-3">
+    <div className="rounded-2xl border border-[#e3e8ef] bg-[#fafbfc] px-4 py-3">
       <div className="text-xs uppercase tracking-[0.2em] text-[var(--muted-foreground)]">{label}</div>
       <div className="mt-2 break-all text-sm text-[var(--foreground)]">{value}</div>
     </div>

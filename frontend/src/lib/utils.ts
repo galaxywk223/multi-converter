@@ -44,3 +44,27 @@ export function formatJobType(value: string) {
 export function formatPercent(value: number) {
   return `${Math.max(0, Math.min(100, Math.round(value)))}%`;
 }
+
+export function getPathLeaf(value: string) {
+  const parts = value.split(/[\\/]/).filter(Boolean);
+  return parts.at(-1) ?? value;
+}
+
+export function compactFileLabel(value: string, max = 36) {
+  const leaf = getPathLeaf(value).trim();
+  if (!leaf || leaf.length <= max) {
+    return leaf || value;
+  }
+
+  const extensionIndex = leaf.lastIndexOf(".");
+  const hasExtension = extensionIndex > 0 && extensionIndex < leaf.length - 1;
+  const extension = hasExtension ? leaf.slice(extensionIndex) : "";
+  const base = hasExtension ? leaf.slice(0, extensionIndex) : leaf;
+  const safeMax = Math.max(max, 12);
+  const reserved = extension ? extension.length : 0;
+  const available = Math.max(6, safeMax - reserved - 1);
+  const head = Math.max(4, Math.ceil(available * 0.55));
+  const tail = Math.max(2, available - head);
+
+  return `${base.slice(0, head)}...${base.slice(-tail)}${extension}`;
+}

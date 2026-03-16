@@ -16,6 +16,8 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--job-type", required=True, choices=["audio_transcribe", "video_transcribe", "video_extract_audio", "image_ocr"])
     run_parser.add_argument("--input", dest="inputs", action="append", required=True, help="Input file or folder")
     run_parser.add_argument("--output-dir", required=True, help="Output directory")
+    run_parser.add_argument("--output-mode", default="separate", choices=["separate", "merged"])
+    run_parser.add_argument("--output-name")
     run_parser.add_argument("--task-id", default=generate_task_id())
     run_parser.add_argument("--model-name", default="medium")
     run_parser.add_argument("--model-dir", default=str(default_model_dir()))
@@ -55,6 +57,8 @@ def main() -> int:
             job_type=args.job_type,
             inputs=[Path(item) for item in args.inputs],
             output_dir=Path(args.output_dir),
+            output_mode=args.output_mode,
+            output_name=args.output_name,
             model_name=args.model_name,
             model_dir=Path(args.model_dir),
             language=args.language,
