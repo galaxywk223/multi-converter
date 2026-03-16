@@ -10,6 +10,7 @@ export function HistoryPage() {
   const history = useAppStore((state) => state.history);
   const revealOutputPath = useAppStore((state) => state.revealOutputPath);
   const openOutputPath = useAppStore((state) => state.openOutputPath);
+  const rerunJob = useAppStore((state) => state.rerunHistoryJob);
 
   return (
     <div className="space-y-6">
@@ -17,7 +18,7 @@ export function HistoryPage() {
         <div className="flex items-center justify-between gap-4">
           <div>
             <CardTitle>最近任务</CardTitle>
-            <CardDescription>这里保留最近完成或失败的作业，方便回看输出与错误。</CardDescription>
+            <CardDescription>查看输出和错误。</CardDescription>
           </div>
           <Badge>{history.length ? `${history.length} 条记录` : "暂无记录"}</Badge>
         </div>
@@ -79,7 +80,7 @@ export function HistoryPage() {
                       </Button>
                     </>
                   ) : null}
-                  <Button variant="ghost" size="sm" disabled>
+                  <Button variant="ghost" size="sm" onClick={() => void rerunJob(item.taskId)}>
                     <RotateCcw className="h-4 w-4" />
                     重新运行
                   </Button>
@@ -90,7 +91,7 @@ export function HistoryPage() {
         ) : (
           <Card>
             <div className="text-sm leading-7 text-[var(--muted-foreground)]">
-              还没有任务历史。跑完第一批后，这里会记录输出路径、完成时间和错误信息。
+              暂无历史记录。
             </div>
           </Card>
         )}

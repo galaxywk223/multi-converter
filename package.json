@@ -3,6 +3,8 @@
   "private": true,
   "version": "0.1.0",
   "scripts": {
+    "setup:windows": "powershell -ExecutionPolicy Bypass -File scripts\\setup-windows.ps1",
+    "doctor": "powershell -ExecutionPolicy Bypass -File scripts\\doctor.ps1",
     "install:frontend": "npm install --prefix frontend",
     "dev": "set PATH=%USERPROFILE%\\.cargo\\bin;%PATH% && npx @tauri-apps/cli dev -c src-tauri/tauri.conf.json",
     "frontend:dev": "npm run dev --prefix frontend",

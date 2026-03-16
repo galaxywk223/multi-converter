@@ -18,25 +18,25 @@ const navItems: Array<{
   {
     id: "workbench",
     label: "工作台",
-    description: "拖拽、队列、日志与执行入口",
+    description: "执行任务",
     icon: Waves,
   },
   {
     id: "history",
     label: "历史",
-    description: "查看最近任务和输出结果",
+    description: "查看记录",
     icon: History,
   },
   {
     id: "models",
     label: "模型管理",
-    description: "检查设备、模型与本地缓存",
+    description: "模型与环境",
     icon: LibraryBig,
   },
   {
     id: "settings",
     label: "设置",
-    description: "默认输出、语言与运行策略",
+    description: "默认配置",
     icon: Settings2,
   },
 ];
@@ -46,12 +46,14 @@ function App() {
   const environment = useAppStore((state) => state.environment);
   const initialize = useAppStore((state) => state.initialize);
   const connectEvents = useAppStore((state) => state.connectEvents);
+  const connectInputDrops = useAppStore((state) => state.connectInputDrops);
   const setActiveView = useAppStore((state) => state.setActiveView);
 
   useEffect(() => {
     void initialize();
     void connectEvents();
-  }, [connectEvents, initialize]);
+    void connectInputDrops();
+  }, [connectEvents, connectInputDrops, initialize]);
 
   return (
     <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
@@ -63,12 +65,8 @@ function App() {
               <Badge className="w-fit border-[rgba(236,110,52,0.22)] bg-[rgba(236,110,52,0.14)] text-[var(--accent)]">
                 AudioToText Desktop
               </Badge>
-              <h1 className="text-3xl font-semibold tracking-[-0.05em] text-white">
-                本地音视频转换中心
-              </h1>
-              <p className="text-sm leading-7 text-[var(--muted-foreground)]">
-                Tauri 2 桌面壳 + 本地 worker 协议，先把形态搭稳，再逐步替换底层引擎。
-              </p>
+              <h1 className="text-3xl font-semibold tracking-[-0.05em] text-white">本地转换</h1>
+              <p className="text-sm leading-7 text-[var(--muted-foreground)]">音频转文字，视频转文字，视频转音频。</p>
             </div>
 
             <nav className="space-y-2">
@@ -113,6 +111,7 @@ function App() {
                 <div>Device: {environment?.device ?? "检测中..."}</div>
                 <div>Python: {environment?.pythonVersion ?? "检测中..."}</div>
                 <div>ffmpeg: {environment?.ffmpegAvailable ? "ready" : "missing"}</div>
+                <div>AppData: {environment?.appDataWritable ? "writable" : "blocked"}</div>
               </div>
             </div>
           </div>

@@ -2,16 +2,36 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 import type {
+  AppSettings,
   EnvironmentInfo,
   HistoryRecord,
+  InputSelectionResult,
   JobLog,
   JobProgress,
+  JobType,
   StartJobPayload,
 } from "./types";
 
 export const desktopMode = isTauri();
+
+const mediaExtensions = [
+  "mp3",
+  "wav",
+  "m4a",
+  "flac",
+  "aac",
+  "ogg",
+  "mp4",
+  "mkv",
+  "mov",
+  "avi",
+  "webm",
+  "flv",
+  "m4v",
+];
 
 export interface JobDoneEvent {
   taskId: string;
@@ -31,55 +51,70 @@ export interface JobErrorEvent {
   details?: string;
 }
 
-export async function pickInputFiles() {
+export async function selectInputs(
+  mode: "files" | "directories",
+  jobType: JobType,
+): Promise<InputSelectionResult> {
+  if (!desktopMode) {
+    return { accepted: [], skipped: [] };
+  }
+
   const result = await open({
-    title: "选择音频或视频文件",
+    title: mode === "files" ? "选择音频或视频文件" : "选择待处理文件夹",
     multiple: true,
-    filters: [
-      {
-        name: "Media",
-        extensions: [
-          "mp3",
-          "wav",
-          "m4a",
-          "flac",
-          "aac",
-          "ogg",
-          "mp4",
-          "mkv",
-          "mov",
-          "avi",
-          "webm",
-          "flv",
-          "m4v",
-        ],
-      },
-    ],
+    directory: mode === "directories",
+    recursive: mode === "directories",
+    filters:
+      mode === "files"
+        ? [
+            {
+              name: "Media",
+              extensions: mediaExtensions,
+            },
+          ]
+        : undefined,
   });
 
-  if (!result) {
-    return [];
-  }
-  return Array.isArray(result) ? result : [result];
+  const paths = !result ? [] : Array.isArray(result) ? result : [result];
+  return normalizeInputs(paths, jobType);
 }
 
-export async function pickInputFolders() {
-  const result = await open({
-    title: "选择待处理文件夹",
-    directory: true,
-    multiple: true,
-    recursive: true,
+export async function normalizeInputs(
+  paths: string[],
+  jobType: JobType,
+): Promise<InputSelectionResult> {
+  if (!paths.length) {
+    return { accepted: [], skipped: [] };
+  }
+
+  if (!desktopMode) {
+    return { accepted: paths, skipped: [] };
+  }
+
+  return invoke<InputSelectionResult>("normalizeInputs", {
+    paths,
+    jobType,
   });
-
-  if (!result) {
-    return [];
-  }
-  return Array.isArray(result) ? result : [result];
 }
 
-export async function pickOutputDirectory(defaultPath?: string) {
+export async function selectOutputDir(defaultPath?: string) {
+  if (!desktopMode) {
+    return "";
+  }
   const result = await open({
     title: "选择输出目录",
+    directory: true,
+    defaultPath,
+  });
+  return typeof result === "string" ? result : "";
+}
+
+export async function selectDirectory(title: string, defaultPath?: string) {
+  if (!desktopMode) {
+    return "";
+  }
+  const result = await open({
+    title,
     directory: true,
     defaultPath,
   });
@@ -93,11 +128,35 @@ export async function detectRuntimeEnvironment() {
       device: "cuda",
       ffmpegAvailable: true,
       ffmpegVersion: "mock ffmpeg runtime",
+      ffmpegPath: "ffmpeg",
       defaultModelDir: "C:\\Users\\You\\AppData\\Local\\AudioToText\\models",
       modelExists: false,
+      appDataDir: "C:\\Users\\You\\AppData\\Local\\AudioToText",
+      appDataWritable: true,
     } satisfies EnvironmentInfo;
   }
   return invoke<EnvironmentInfo>("detectEnvironment");
+}
+
+export async function loadAppSettings() {
+  if (!desktopMode) {
+    return {
+      outputDir: "",
+      modelId: "medium",
+      language: "zh",
+      devicePreference: "auto",
+      tempPolicy: "cleanup_after_success",
+      concurrency: 1,
+    } satisfies AppSettings;
+  }
+  return invoke<AppSettings>("loadSettings");
+}
+
+export async function saveAppSettings(settings: AppSettings) {
+  if (!desktopMode) {
+    return settings;
+  }
+  return invoke<AppSettings>("saveSettings", { settings });
 }
 
 export async function ensureRuntimeModel(modelId: string, localPath?: string) {
@@ -134,6 +193,13 @@ export async function dispatchJob(payload: StartJobPayload) {
     return { taskId: `mock-${Date.now()}` };
   }
   return invoke<{ taskId: string }>("startJob", { payload });
+}
+
+export async function rerunHistoryJob(taskId: string) {
+  if (!desktopMode) {
+    return { taskId: `mock-rerun-${Date.now()}` };
+  }
+  return invoke<{ taskId: string }>("rerunHistory", { taskId });
 }
 
 export async function stopJob(taskId: string) {
@@ -188,4 +254,21 @@ export async function subscribeToJobEvents(handlers: {
       unlisten();
     }
   };
+}
+
+export async function subscribeToInputDrops(
+  onPaths: (result: InputSelectionResult) => void,
+  getJobType: () => JobType,
+) {
+  if (!desktopMode) {
+    return () => {};
+  }
+
+  const window = getCurrentWindow();
+  return window.onDragDropEvent(async (event) => {
+    if (event.payload.type === "drop") {
+      const result = await normalizeInputs(event.payload.paths, getJobType());
+      onPaths(result);
+    }
+  });
 }

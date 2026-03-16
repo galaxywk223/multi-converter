@@ -59,7 +59,7 @@ def resolve_input_files(inputs: Iterable[Path], job_type: str) -> list[Path]:
         if item.is_dir():
             children = sorted(
                 child
-                for child in item.iterdir()
+                for child in item.rglob("*")
                 if child.is_file() and child.suffix.lower() in valid_extensions
             )
             resolved.extend(children)
@@ -143,6 +143,13 @@ def run_job(config: RunConfig, events: EventWriter) -> dict[str, object]:
         raise ValueError("未找到可处理的输入文件。")
 
     config.output_dir.mkdir(parents=True, exist_ok=True)
+    events.progress(
+        stage="preflight",
+        percent=2,
+        current_file=None,
+        total_files=len(input_files),
+        message="输入文件检查完成，开始执行任务。",
+    )
     if config.job_type == "video_extract_audio":
         outputs = extract_audio(config, input_files, events)
     else:
@@ -175,7 +182,7 @@ def transcribe_media(config: RunConfig, files: list[Path], events: EventWriter) 
     for index, file_path in enumerate(files, start=1):
         started_at = time.time()
         events.progress(
-            stage="preparing",
+            stage="transcribing",
             percent=((index - 1) / total) * 100,
             current_file=file_path.name,
             total_files=total,
@@ -201,6 +208,13 @@ def transcribe_media(config: RunConfig, files: list[Path], events: EventWriter) 
                 f"[{format_timestamp(segment.start)} -> {format_timestamp(segment.end)}] {text}",
             )
 
+        events.progress(
+            stage="writing",
+            percent=min(((index - 1) / total) * 100 + 5, 99),
+            current_file=file_path.name,
+            total_files=total,
+            message=f"Writing {output_file.name}",
+        )
         with output_file.open("w", encoding="utf-8") as handle:
             handle.write(f"文件名: {file_path.name}\n")
             handle.write("-" * 30 + "\n\n")
@@ -278,7 +292,7 @@ def extract_audio(config: RunConfig, files: list[Path], events: EventWriter) -> 
                         base_percent = ((index - 1) / total) * 100
                         intra_percent = min(int(raw) / 3_000_000, 0.99) * (100 / total)
                         events.progress(
-                            stage="extracting_audio",
+                            stage="extracting",
                             percent=min(base_percent + intra_percent, 99.0),
                             current_file=file_path.name,
                             total_files=total,
@@ -295,7 +309,7 @@ def extract_audio(config: RunConfig, files: list[Path], events: EventWriter) -> 
         elapsed = time.time() - started_at
         remaining = total - index
         events.progress(
-            stage="extracting_audio",
+            stage="extracting",
             percent=(index / total) * 100,
             current_file=file_path.name,
             total_files=total,

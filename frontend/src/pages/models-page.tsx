@@ -1,4 +1,4 @@
-import { Cpu, Download, FolderSearch, Rocket, ShieldCheck } from "lucide-react";
+import { Cpu, Download, FolderSearch, HardDriveDownload, Rocket, ShieldCheck } from "lucide-react";
 
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
@@ -9,47 +9,50 @@ export function ModelsPage() {
   const environment = useAppStore((state) => state.environment);
   const models = useAppStore((state) => state.models);
   const busy = useAppStore((state) => state.busy);
+  const settings = useAppStore((state) => state.settings);
   const ensureDefaultModel = useAppStore((state) => state.ensureDefaultModel);
+  const chooseModelDir = useAppStore((state) => state.chooseModelDir);
 
   return (
     <div className="space-y-6">
       <div className="grid gap-6 lg:grid-cols-[0.92fr_1.08fr]">
         <Card>
           <CardTitle>环境检测</CardTitle>
-          <CardDescription className="mt-2">
-            应用启动时会先检查 Python、GPU、ffmpeg 和本地模型目录。
-          </CardDescription>
+          <CardDescription className="mt-2">运行环境状态。</CardDescription>
           <div className="mt-6 grid gap-3">
             <MetaRow label="推理设备" value={environment?.device ?? "unknown"} icon={Rocket} />
-            <MetaRow
-              label="Python"
-              value={environment?.pythonVersion ?? "未检测"}
-              icon={Cpu}
-            />
+            <MetaRow label="Python" value={environment?.pythonVersion ?? "未检测"} icon={Cpu} />
             <MetaRow
               label="ffmpeg"
-              value={environment?.ffmpegAvailable ? "可用" : "缺失"}
+              value={environment?.ffmpegAvailable ? environment.ffmpegPath : "缺失"}
               icon={ShieldCheck}
             />
             <MetaRow
               label="模型目录"
-              value={environment?.defaultModelDir ?? "未设置"}
+              value={settings.modelPath || environment?.defaultModelDir || "未设置"}
               icon={FolderSearch}
             />
+            <MetaRow
+              label="AppData"
+              value={environment?.appDataWritable ? "可写" : "不可写"}
+              icon={HardDriveDownload}
+            />
+          </div>
+
+          <div className="mt-5 flex flex-wrap gap-2">
+            <Button variant="secondary" size="sm" onClick={() => void chooseModelDir()}>
+              <FolderSearch className="h-4 w-4" />
+              选择本地模型目录
+            </Button>
           </div>
         </Card>
 
         <Card>
-          <CardTitle>模型策略</CardTitle>
-          <CardDescription className="mt-2">
-            首次启动优先复用本机已有资源；没有再下载，避免安装包过大。
-          </CardDescription>
+          <CardTitle>模型</CardTitle>
+          <CardDescription className="mt-2">安装或切换模型目录。</CardDescription>
           <div className="mt-5 grid gap-4 md:grid-cols-2">
             {models.map((model) => (
-              <div
-                key={model.id}
-                className="rounded-[24px] border border-white/8 bg-white/4 p-4"
-              >
+              <div key={model.id} className="rounded-[24px] border border-white/8 bg-white/4 p-4">
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <div>
                     <div className="text-base font-semibold text-[var(--foreground)]">
@@ -71,7 +74,7 @@ export function ModelsPage() {
                   <Button
                     variant={model.status === "available" ? "secondary" : "primary"}
                     size="sm"
-                    onClick={() => void ensureDefaultModel(model.id)}
+                    onClick={() => void ensureDefaultModel(model.id, settings.modelPath)}
                     disabled={busy || model.status === "downloading"}
                   >
                     <Download className="h-4 w-4" />

@@ -9,15 +9,16 @@ import {
   Waves,
   X,
 } from "lucide-react";
-import { useDeferredValue } from "react";
+import { useDeferredValue, useEffect, useState } from "react";
 
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card, CardDescription, CardTitle } from "../components/ui/card";
 import { Progress } from "../components/ui/progress";
-import { useAppStore } from "../store/app-store";
+import { desktopMode } from "../lib/tauri";
 import { formatJobType, formatPercent } from "../lib/utils";
 import type { JobType } from "../lib/types";
+import { useAppStore } from "../store/app-store";
 
 const jobTypeMeta: Array<{
   id: JobType;
@@ -28,26 +29,28 @@ const jobTypeMeta: Array<{
   {
     id: "audio_transcribe",
     title: "音频转文字",
-    description: "适合播客、录音、课程音频，输出 UTF-8 文本。",
+    description: "输出 TXT",
     icon: Waves,
   },
   {
     id: "video_transcribe",
     title: "视频转文字",
-    description: "直接拿视频文件转写，不用手动拆音轨。",
+    description: "直接转写视频",
     icon: Film,
   },
   {
     id: "video_extract_audio",
     title: "视频转音频",
-    description: "把视频批量提取成 MP3，方便后续再做转写。",
+    description: "导出 MP3",
     icon: AudioLines,
   },
 ];
 
 export function WorkbenchPage() {
+  const [dragging, setDragging] = useState(false);
   const draft = useAppStore((state) => state.draft);
   const jobs = useAppStore((state) => state.jobs);
+  const draftWarnings = useAppStore((state) => state.draftWarnings);
   const lastError = useAppStore((state) => state.lastError);
   const chooseInputFiles = useAppStore((state) => state.chooseInputFiles);
   const chooseInputFolders = useAppStore((state) => state.chooseInputFolders);
@@ -55,10 +58,24 @@ export function WorkbenchPage() {
   const setDraftJobType = useAppStore((state) => state.setDraftJobType);
   const chooseOutputDir = useAppStore((state) => state.chooseOutputDir);
   const startDraftJob = useAppStore((state) => state.startDraftJob);
-  const cancelActiveJob = useAppStore((state) => state.cancelActiveJob);
+  const cancelJob = useAppStore((state) => state.cancelJob);
   const revealOutputPath = useAppStore((state) => state.revealOutputPath);
-  const activeJob = jobs[0];
+  const activeJob = jobs.find((job) => job.status === "running") ?? jobs[0];
   const deferredLogs = useDeferredValue(activeJob?.logs ?? []);
+
+  useEffect(() => {
+    if (!desktopMode) {
+      return;
+    }
+    const onDragEnter = () => setDragging(true);
+    const onDragLeave = () => setDragging(false);
+    window.addEventListener("dragenter", onDragEnter);
+    window.addEventListener("dragleave", onDragLeave);
+    return () => {
+      window.removeEventListener("dragenter", onDragEnter);
+      window.removeEventListener("dragleave", onDragLeave);
+    };
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -68,20 +85,23 @@ export function WorkbenchPage() {
         <div className="relative grid gap-6 lg:grid-cols-[1.3fr_0.7fr]">
           <div className="space-y-4">
             <Badge className="w-fit border-[rgba(236,110,52,0.25)] bg-[rgba(236,110,52,0.12)] text-[var(--accent)]">
-              Windows 本地桌面工作台
+              Desktop
             </Badge>
             <div className="space-y-3">
               <h2 className="max-w-2xl text-4xl font-semibold leading-tight tracking-[-0.04em] text-white">
-                把脚本能力，整理成一块真正能长期使用的本地音视频生产台。
+                本地音视频转换
               </h2>
               <p className="max-w-2xl text-sm leading-7 text-[var(--muted-foreground)]">
-                这里保留了你当前的三条主流程，并把输入、输出、队列、日志、模型状态都放到一个稳定的桌面工作区里。
+                选择模式，加入文件，开始处理。
               </p>
             </div>
           </div>
           <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
             <MetricCard label="当前任务" value={activeJob ? formatJobType(activeJob.type) : "等待中"} />
-            <MetricCard label="队列长度" value={`${jobs.length}`} />
+            <MetricCard
+              label="队列长度"
+              value={`${jobs.filter((job) => job.status === "queued" || job.status === "running").length}`}
+            />
             <MetricCard
               label="输入数量"
               value={draft.inputs.length ? `${draft.inputs.length} 项` : "未选择"}
@@ -96,7 +116,7 @@ export function WorkbenchPage() {
             <div className="mb-5 flex items-center justify-between">
               <div>
                 <CardTitle>模式选择</CardTitle>
-                <CardDescription>第一版完整保留现有 3 条处理链路。</CardDescription>
+                <CardDescription>选择处理方式。</CardDescription>
               </div>
               <Badge>{formatJobType(draft.jobType)}</Badge>
             </div>
@@ -133,7 +153,7 @@ export function WorkbenchPage() {
             <div className="mb-5 flex items-center justify-between">
               <div>
                 <CardTitle>输入清单</CardTitle>
-                <CardDescription>支持文件和文件夹一起加入任务队列，路径会去重。</CardDescription>
+                <CardDescription>支持文件和文件夹。</CardDescription>
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button variant="secondary" size="sm" onClick={() => void chooseInputFiles()}>
@@ -147,7 +167,13 @@ export function WorkbenchPage() {
               </div>
             </div>
 
-            <div className="rounded-[24px] border border-dashed border-white/12 bg-white/3 p-5">
+            <div
+              className={`rounded-[24px] border border-dashed p-5 transition ${
+                dragging
+                  ? "border-[rgba(236,110,52,0.38)] bg-[rgba(236,110,52,0.08)]"
+                  : "border-white/12 bg-white/3"
+              }`}
+            >
               {draft.inputs.length ? (
                 <div className="grid gap-3">
                   {draft.inputs.map((input) => (
@@ -175,21 +201,38 @@ export function WorkbenchPage() {
                     <FolderPlus className="h-6 w-6 text-[var(--accent)]" />
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-[var(--foreground)]">先把素材拖进来，或者点按钮选取。</p>
+                    <p className="text-sm font-medium text-[var(--foreground)]">
+                      {desktopMode ? "拖入文件或文件夹，或点击选择。" : "点击选择本地文件。"}
+                    </p>
                     <p className="mt-2 text-xs leading-6 text-[var(--muted-foreground)]">
-                      桌面版接通后这里会承接真实拖拽；当前浏览器预览模式先用系统对话框模拟。
+                      {desktopMode
+                        ? "文件夹会自动展开。"
+                        : "预览模式下使用系统对话框。"}
                     </p>
                   </div>
                 </div>
               )}
             </div>
+
+            {draftWarnings.length ? (
+              <div className="mt-4 rounded-[24px] border border-[rgba(236,110,52,0.22)] bg-[rgba(236,110,52,0.08)] p-4">
+                <div className="mb-2 text-xs uppercase tracking-[0.22em] text-[var(--accent)]">
+                  已跳过
+                </div>
+                <div className="grid gap-2 text-sm text-[var(--muted-foreground)]">
+                  {draftWarnings.map((warning) => (
+                    <div key={warning}>{warning}</div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </Card>
 
           <Card>
             <div className="mb-5 flex items-center justify-between">
               <div>
                 <CardTitle>输出设置</CardTitle>
-                <CardDescription>文本输出为 UTF-8；视频转音频输出为 MP3。</CardDescription>
+                <CardDescription>选择输出目录。</CardDescription>
               </div>
               <Button variant="secondary" size="sm" onClick={() => void chooseOutputDir()}>
                 <FolderOutput className="h-4 w-4" />
@@ -211,16 +254,6 @@ export function WorkbenchPage() {
                 <Play className="h-4 w-4" />
                 开始处理
               </Button>
-              {activeJob && (activeJob.status === "queued" || activeJob.status === "running") ? (
-                <Button
-                  variant="danger"
-                  size="lg"
-                  onClick={() => void cancelActiveJob(activeJob.taskId)}
-                >
-                  <Trash2 className="h-4 w-4" />
-                  取消当前任务
-                </Button>
-              ) : null}
               {lastError ? <span className="text-sm text-[var(--danger)]">{lastError}</span> : null}
             </div>
           </Card>
@@ -231,7 +264,7 @@ export function WorkbenchPage() {
             <div className="mb-5 flex items-center justify-between">
               <div>
                 <CardTitle>任务队列</CardTitle>
-                <CardDescription>默认单并发，避免 GPU 和 ffmpeg 互相抢占。</CardDescription>
+                <CardDescription>单任务串行执行。</CardDescription>
               </div>
               <Badge>{jobs.length ? `${jobs.length} 个任务` : "空队列"}</Badge>
             </div>
@@ -258,7 +291,7 @@ export function WorkbenchPage() {
                     </div>
                     <Progress value={job.progress.percent} />
                     <div className="mt-4 flex flex-wrap gap-2">
-                      {job.outputs.length ? (
+                      {job.outputs[0] ? (
                         <Button
                           variant="secondary"
                           size="sm"
@@ -267,12 +300,18 @@ export function WorkbenchPage() {
                           打开结果
                         </Button>
                       ) : null}
+                      {(job.status === "queued" || job.status === "running") ? (
+                        <Button variant="danger" size="sm" onClick={() => void cancelJob(job.taskId)}>
+                          <Trash2 className="h-4 w-4" />
+                          取消任务
+                        </Button>
+                      ) : null}
                     </div>
                   </div>
                 ))
               ) : (
                 <div className="rounded-[24px] border border-dashed border-white/12 p-6 text-sm text-[var(--muted-foreground)]">
-                  还没有任务。选择素材后就可以开始跑第一批。
+                  暂无任务。
                 </div>
               )}
             </div>
@@ -282,7 +321,7 @@ export function WorkbenchPage() {
             <div className="mb-5 flex items-center justify-between">
               <div>
                 <CardTitle>实时日志</CardTitle>
-                <CardDescription>桌面端接通后会消费 `job://log` 与 `job://progress` 事件。</CardDescription>
+                <CardDescription>显示任务输出。</CardDescription>
               </div>
               <Badge>{activeJob ? activeJob.status : "idle"}</Badge>
             </div>
@@ -304,7 +343,7 @@ export function WorkbenchPage() {
                   ))
               ) : (
                 <div className="rounded-[24px] border border-dashed border-white/12 p-6 text-sm text-[var(--muted-foreground)]">
-                  任务开始后，这里会滚动显示 worker 输出和状态事件。
+                  任务开始后显示日志。
                 </div>
               )}
             </div>

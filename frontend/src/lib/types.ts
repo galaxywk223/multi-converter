@@ -14,7 +14,14 @@ export type ViewName = "workbench" | "history" | "models" | "settings";
 
 export interface JobProgress {
   taskId: string;
-  stage: string;
+  stage:
+    | "preflight"
+    | "queueing"
+    | "extracting"
+    | "transcribing"
+    | "writing"
+    | "completed"
+    | string;
   percent: number;
   currentFile: string | null;
   totalFiles: number;
@@ -42,49 +49,15 @@ export interface JobRecord {
   error?: string;
 }
 
-export interface HistoryRecord {
-  taskId: string;
-  type: JobType;
-  status: Exclude<JobStatus, "queued" | "running">;
-  createdAt: string;
-  finishedAt: string;
-  inputs: string[];
-  outputDir: string;
-  outputs: string[];
-  error?: string;
-}
-
-export interface EnvironmentInfo {
-  pythonVersion: string;
-  device: "cpu" | "cuda";
-  ffmpegAvailable: boolean;
-  ffmpegVersion?: string | null;
-  defaultModelDir: string;
-  modelExists: boolean;
-}
-
-export interface ModelInfo {
-  id: string;
-  name: string;
-  description: string;
-  sizeLabel: string;
-  status: "available" | "missing" | "downloading";
-  location?: string;
-}
-
 export interface AppSettings {
-  defaultOutputDir: string;
-  language: string;
-  modelName: string;
-  device: "auto" | "cpu" | "cuda";
-  concurrency: 1;
-  tempPolicy: "cleanup" | "retain";
-}
-
-export interface DraftJob {
-  jobType: JobType;
-  inputs: string[];
   outputDir: string;
+  modelId: string;
+  modelPath?: string;
+  language: string;
+  devicePreference: "auto" | "cpu" | "cuda";
+  ffmpegPath?: string;
+  tempPolicy: "cleanup_after_success" | "keep_all";
+  concurrency: 1;
 }
 
 export interface StartJobPayload {
@@ -96,4 +69,53 @@ export interface StartJobPayload {
   language: string;
   device: "auto" | "cpu" | "cuda";
   ffmpegPath?: string;
+}
+
+export interface HistoryRecord {
+  taskId: string;
+  type: JobType;
+  status: Exclude<JobStatus, "queued" | "running">;
+  createdAt: string;
+  finishedAt: string;
+  inputs: string[];
+  outputDir: string;
+  outputs: string[];
+  error?: string;
+  payloadJson: StartJobPayload;
+  settingsSnapshot: AppSettings;
+}
+
+export interface EnvironmentInfo {
+  pythonVersion: string;
+  device: "cpu" | "cuda";
+  ffmpegAvailable: boolean;
+  ffmpegVersion?: string | null;
+  ffmpegPath: string;
+  defaultModelDir: string;
+  modelExists: boolean;
+  appDataDir: string;
+  appDataWritable: boolean;
+}
+
+export interface ModelInfo {
+  id: string;
+  name: string;
+  description: string;
+  sizeLabel: string;
+  status: "available" | "missing" | "downloading";
+  location?: string;
+}
+
+export interface DraftJob {
+  jobType: JobType;
+  inputs: string[];
+  outputDir: string;
+}
+
+export interface InputSelectionResult {
+  accepted: string[];
+  skipped: Array<{
+    path: string;
+    reason: string;
+  }>;
 }

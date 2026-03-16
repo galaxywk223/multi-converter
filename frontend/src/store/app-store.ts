@@ -1,5 +1,4 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
 
 import {
   desktopMode,
@@ -7,12 +6,16 @@ import {
   dispatchJob,
   ensureRuntimeModel,
   fetchHistory,
+  loadAppSettings,
   openPathWithSystem,
-  pickInputFiles,
-  pickInputFolders,
-  pickOutputDirectory,
+  rerunHistoryJob,
   revealPath,
+  saveAppSettings,
+  selectDirectory,
+  selectInputs,
+  selectOutputDir,
   stopJob,
+  subscribeToInputDrops,
   subscribeToJobEvents,
 } from "../lib/tauri";
 import type {
@@ -20,6 +23,7 @@ import type {
   DraftJob,
   EnvironmentInfo,
   HistoryRecord,
+  InputSelectionResult,
   JobLog,
   JobProgress,
   JobRecord,
@@ -30,12 +34,12 @@ import type {
 } from "../lib/types";
 
 const defaultSettings: AppSettings = {
-  defaultOutputDir: "",
+  outputDir: "",
+  modelId: "medium",
   language: "zh",
-  modelName: "medium",
-  device: "auto",
+  devicePreference: "auto",
+  tempPolicy: "cleanup_after_success",
   concurrency: 1,
-  tempPolicy: "cleanup",
 };
 
 const initialDraft: DraftJob = {
@@ -48,14 +52,14 @@ const starterModels: ModelInfo[] = [
   {
     id: "medium",
     name: "Whisper Medium",
-    description: "精度与速度的默认平衡点，适合作为首发模型。",
+    description: "默认模型。",
     sizeLabel: "~5 GB VRAM / 本地缓存",
     status: "missing",
   },
   {
     id: "small",
     name: "Whisper Small",
-    description: "显存更紧张的电脑可以切换到它，速度更稳一些。",
+    description: "更轻量。",
     sizeLabel: "~2 GB VRAM / 本地缓存",
     status: "missing",
   },
@@ -71,25 +75,31 @@ interface AppStore {
   jobs: JobRecord[];
   history: HistoryRecord[];
   models: ModelInfo[];
+  draftWarnings: string[];
   lastError: string | null;
   setActiveView: (view: ViewName) => void;
   initialize: () => Promise<void>;
   connectEvents: () => Promise<void>;
-  addInputPaths: (paths: string[]) => void;
+  connectInputDrops: () => Promise<void>;
+  addSelectionResult: (result: InputSelectionResult) => void;
   chooseInputFiles: () => Promise<void>;
   chooseInputFolders: () => Promise<void>;
   removeInputPath: (path: string) => void;
   setDraftJobType: (jobType: JobType) => void;
   chooseOutputDir: () => Promise<void>;
-  saveSettings: (settings: AppSettings) => void;
+  chooseModelDir: () => Promise<void>;
+  saveSettings: (settings: AppSettings) => Promise<void>;
   startDraftJob: () => Promise<void>;
-  cancelActiveJob: (taskId: string) => Promise<void>;
-  ensureDefaultModel: (modelId: string) => Promise<void>;
+  cancelJob: (taskId: string) => Promise<void>;
+  rerunHistoryJob: (taskId: string) => Promise<void>;
+  ensureDefaultModel: (modelId: string, localPath?: string) => Promise<void>;
+  refreshHistory: () => Promise<void>;
   openOutputPath: (path: string) => Promise<void>;
   revealOutputPath: (path: string) => Promise<void>;
 }
 
 let unsubscribeEvents: (() => void) | null = null;
+let unsubscribeDropEvents: (() => void) | null = null;
 const mockTimers = new Map<string, ReturnType<typeof setInterval>>();
 
 function now() {
@@ -99,16 +109,12 @@ function now() {
 function buildProgress(taskId: string, message: string): JobProgress {
   return {
     taskId,
-    stage: "queued",
+    stage: "queueing",
     percent: 0,
     currentFile: null,
     totalFiles: 0,
     message,
   };
-}
-
-function upsertHistory(current: HistoryRecord[], record: HistoryRecord) {
-  return [record, ...current.filter((item) => item.taskId !== record.taskId)].slice(0, 24);
 }
 
 function addLog(job: JobRecord, level: JobLog["level"], message: string): JobRecord {
@@ -119,181 +125,168 @@ function addLog(job: JobRecord, level: JobLog["level"], message: string): JobRec
   };
 }
 
+function patchJob(taskId: string, updater: (job: JobRecord) => JobRecord) {
+  useAppStore.setState((state) => ({
+    jobs: state.jobs.map((job) => (job.taskId === taskId ? updater(job) : job)),
+  }));
+}
+
 async function runMockJob(payload: StartJobPayload) {
   const taskId = `mock-${Date.now()}`;
   const steps = [
-    { percent: 8, stage: "preparing", message: "准备输入文件..." },
+    { percent: 10, stage: "preflight", message: "检查本地环境..." },
+    { percent: 30, stage: "queueing", message: "开始处理第一批文件..." },
     {
-      percent: 28,
-      stage: payload.jobType === "video_extract_audio" ? "extracting_audio" : "transcribing",
-      message: "启动本地引擎...",
+      percent: 66,
+      stage: payload.jobType === "video_extract_audio" ? "extracting" : "transcribing",
+      message: "正在处理媒体内容...",
     },
-    {
-      percent: 57,
-      stage: payload.jobType === "video_extract_audio" ? "extracting_audio" : "transcribing",
-      message: "处理第一个文件...",
-    },
-    {
-      percent: 81,
-      stage: payload.jobType === "video_extract_audio" ? "extracting_audio" : "transcribing",
-      message: "写入输出结果...",
-    },
-    { percent: 100, stage: "finalizing", message: "任务完成。" },
-  ];
+    { percent: 92, stage: "writing", message: "写入输出文件..." },
+    { percent: 100, stage: "completed", message: "任务完成。" },
+  ] as const;
 
-  let stepIndex = 0;
-  const interval = setInterval(() => {
+  let index = 0;
+  const timer = setInterval(() => {
     const state = useAppStore.getState();
     const job = state.jobs.find((item) => item.taskId === taskId);
     if (!job) {
-      clearInterval(interval);
+      clearInterval(timer);
       mockTimers.delete(taskId);
       return;
     }
 
-    const step = steps[Math.min(stepIndex, steps.length - 1)];
-    const updatedJob: JobRecord = addLog(
-      {
-        ...job,
-        status: step.percent >= 100 ? "succeeded" : "running",
-        progress: {
-          taskId,
-          stage: step.stage,
-          percent: step.percent,
-          currentFile: payload.inputs[0] ?? null,
-          totalFiles: payload.inputs.length,
-          message: step.message,
+    const step = steps[Math.min(index, steps.length - 1)];
+    patchJob(taskId, (current) =>
+      addLog(
+        {
+          ...current,
+          status: step.percent >= 100 ? "succeeded" : "running",
+          progress: {
+            taskId,
+            stage: step.stage,
+            percent: step.percent,
+            currentFile: payload.inputs[0] ?? null,
+            totalFiles: payload.inputs.length,
+            message: step.message,
+          },
         },
-      },
-      "info",
-      step.message,
+        "info",
+        step.message,
+      ),
     );
 
-    const jobs = state.jobs.map((item) => (item.taskId === taskId ? updatedJob : item));
-    const nextState: Partial<AppStore> = { jobs };
     if (step.percent >= 100) {
-      clearInterval(interval);
+      clearInterval(timer);
       mockTimers.delete(taskId);
       const outputs = payload.inputs.map((item) =>
         payload.jobType === "video_extract_audio"
           ? `${payload.outputDir}\\${item.split(/[\\/]/).pop()?.replace(/\.[^.]+$/, ".mp3")}`
           : `${payload.outputDir}\\${item.split(/[\\/]/).pop()?.replace(/\.[^.]+$/, ".txt")}`,
       );
-      nextState.history = upsertHistory(state.history, {
-        taskId,
-        type: payload.jobType,
-        status: "succeeded",
-        createdAt: job.createdAt,
-        finishedAt: now(),
-        inputs: payload.inputs,
-        outputDir: payload.outputDir,
-        outputs,
-      });
-      nextState.jobs = jobs.map((item) =>
-        item.taskId === taskId
-          ? {
-              ...updatedJob,
-              outputs,
-            }
-          : item,
-      );
+      useAppStore.setState((current) => ({
+        jobs: current.jobs.map((jobItem) =>
+          jobItem.taskId === taskId ? { ...jobItem, outputs } : jobItem,
+        ),
+        history: [
+          {
+            taskId,
+            type: payload.jobType,
+            status: "succeeded",
+            createdAt: job.createdAt,
+            finishedAt: now(),
+            inputs: payload.inputs,
+            outputDir: payload.outputDir,
+            outputs,
+            payloadJson: payload,
+            settingsSnapshot: current.settings,
+          } satisfies HistoryRecord,
+          ...current.history.filter((item) => item.taskId !== taskId),
+        ].slice(0, 50),
+      }));
     }
 
-    useAppStore.setState(nextState);
-    stepIndex += 1;
+    index += 1;
   }, 900);
 
-  mockTimers.set(taskId, interval);
+  mockTimers.set(taskId, timer);
   return { taskId };
 }
 
-export const useAppStore = create<AppStore>()(
-  persist(
-    (set, get) => ({
-      activeView: "workbench",
-      initialized: false,
-      busy: false,
-      environment: null,
-      settings: defaultSettings,
-      draft: initialDraft,
-      jobs: [],
-      history: [],
-      models: starterModels,
-      lastError: null,
-      setActiveView: (view) => set({ activeView: view }),
-      initialize: async () => {
-        if (get().initialized) {
-          return;
-        }
+export const useAppStore = create<AppStore>((set, get) => ({
+  activeView: "workbench",
+  initialized: false,
+  busy: false,
+  environment: null,
+  settings: defaultSettings,
+  draft: initialDraft,
+  jobs: [],
+  history: [],
+  models: starterModels,
+  draftWarnings: [],
+  lastError: null,
+  setActiveView: (view) => set({ activeView: view }),
+  initialize: async () => {
+    if (get().initialized) {
+      return;
+    }
 
-        set({ busy: true, lastError: null });
-        try {
-          const [environment, history] = await Promise.all([
-            detectRuntimeEnvironment(),
-            fetchHistory(),
-          ]);
+    set({ busy: true, lastError: null });
+    try {
+      const [settings, environment, history] = await Promise.all([
+        loadAppSettings(),
+        detectRuntimeEnvironment(),
+        fetchHistory(),
+      ]);
 
-          set({
-            initialized: true,
-            busy: false,
-            environment,
-            history,
-            draft: {
-              ...get().draft,
-              outputDir: get().draft.outputDir || get().settings.defaultOutputDir,
-            },
-            models: get().models.map((model) =>
-              model.id === "medium"
-                ? {
-                    ...model,
-                    status: environment.modelExists ? "available" : "missing",
-                    location: environment.modelExists ? environment.defaultModelDir : undefined,
-                  }
-                : model,
-            ),
-          });
-        } catch (error) {
-          set({
-            busy: false,
-            lastError:
-              error instanceof Error ? error.message : "初始化桌面环境失败，请检查依赖。",
-          });
-        }
+      set({
+        initialized: true,
+        busy: false,
+        settings,
+        environment,
+        history,
+        draft: {
+          ...get().draft,
+          outputDir: get().draft.outputDir || settings.outputDir,
+        },
+        models: get().models.map((model) =>
+          model.id === settings.modelId || model.id === "medium"
+            ? {
+                ...model,
+                status: environment.modelExists ? "available" : "missing",
+                location: settings.modelPath || environment.defaultModelDir,
+              }
+            : model,
+        ),
+      });
+    } catch (error) {
+      set({
+        busy: false,
+        lastError:
+          error instanceof Error ? error.message : "初始化桌面环境失败，请检查依赖。",
+      });
+    }
+  },
+  connectEvents: async () => {
+    if (unsubscribeEvents) {
+      return;
+    }
+
+    unsubscribeEvents = await subscribeToJobEvents({
+      onProgress: (payload) => {
+        patchJob(payload.taskId, (job) => ({
+          ...job,
+          status: job.status === "cancelled" ? "cancelled" : "running",
+          updatedAt: now(),
+          progress: payload,
+        }));
       },
-      connectEvents: async () => {
-        if (unsubscribeEvents) {
-          return;
-        }
-
-        unsubscribeEvents = await subscribeToJobEvents({
-          onProgress: (payload) => {
-            set({
-              jobs: get().jobs.map((job) =>
-                job.taskId === payload.taskId
-                  ? {
-                      ...job,
-                      status: "running",
-                      updatedAt: now(),
-                      progress: payload,
-                    }
-                  : job,
-              ),
-            });
-          },
-          onLog: (payload) => {
-            set({
-              jobs: get().jobs.map((job) =>
-                job.taskId === payload.taskId ? addLog(job, payload.level, payload.message) : job,
-              ),
-            });
-          },
-          onDone: (payload) => {
-            const state = get();
-            const job = state.jobs.find((item) => item.taskId === payload.taskId);
-            if (!job) {
-              return;
-            }
-            const completed: JobRecord = {
+      onLog: (payload) => {
+        patchJob(payload.taskId, (job) => addLog(job, payload.level, payload.message));
+      },
+      onDone: (payload) => {
+        patchJob(payload.taskId, (job) => ({
+          ...addLog(
+            {
               ...job,
               status: "succeeded",
               updatedAt: now(),
@@ -304,234 +297,281 @@ export const useAppStore = create<AppStore>()(
                 stage: "completed",
                 message: "任务完成。",
               },
-            };
-            set({
-              jobs: state.jobs.map((item) => (item.taskId === payload.taskId ? completed : item)),
-              history: upsertHistory(state.history, {
-                taskId: job.taskId,
-                type: job.type,
-                status: "succeeded",
-                createdAt: job.createdAt,
-                finishedAt: now(),
-                inputs: job.inputs,
-                outputDir: job.outputDir,
-                outputs: payload.outputs,
-              }),
-            });
-          },
-          onError: (payload) => {
-            const state = get();
-            const job = state.jobs.find((item) => item.taskId === payload.taskId);
-            if (!job) {
-              return;
-            }
-            const failed: JobRecord = addLog(
-              {
-                ...job,
-                status: "failed",
-                updatedAt: now(),
-                error: payload.message,
-              },
-              "error",
-              payload.message,
-            );
-            set({
-              lastError: payload.message,
-              jobs: state.jobs.map((item) => (item.taskId === payload.taskId ? failed : item)),
-              history: upsertHistory(state.history, {
-                taskId: job.taskId,
-                type: job.type,
-                status: "failed",
-                createdAt: job.createdAt,
-                finishedAt: now(),
-                inputs: job.inputs,
-                outputDir: job.outputDir,
-                outputs: [],
-                error: payload.message,
-              }),
-            });
-          },
-        });
-      },
-      addInputPaths: (paths) => {
-        const deduped = [...new Set([...get().draft.inputs, ...paths])];
-        set({ draft: { ...get().draft, inputs: deduped } });
-      },
-      chooseInputFiles: async () => {
-        const paths = await pickInputFiles();
-        if (paths.length) {
-          get().addInputPaths(paths);
-        }
-      },
-      chooseInputFolders: async () => {
-        const paths = await pickInputFolders();
-        if (paths.length) {
-          get().addInputPaths(paths);
-        }
-      },
-      removeInputPath: (path) => {
-        set({
-          draft: {
-            ...get().draft,
-            inputs: get().draft.inputs.filter((item) => item !== path),
-          },
-        });
-      },
-      setDraftJobType: (jobType) => set({ draft: { ...get().draft, jobType } }),
-      chooseOutputDir: async () => {
-        const path = await pickOutputDirectory(
-          get().draft.outputDir || get().settings.defaultOutputDir,
-        );
-        if (path) {
-          set({ draft: { ...get().draft, outputDir: path } });
-        }
-      },
-      saveSettings: (settings) => {
-        set({
-          settings,
-          draft: {
-            ...get().draft,
-            outputDir: get().draft.outputDir || settings.defaultOutputDir,
-          },
-        });
-      },
-      startDraftJob: async () => {
-        const state = get();
-        if (state.jobs.some((job) => job.status === "running" || job.status === "queued")) {
-          set({ lastError: "当前默认只允许一个任务运行，请等待队列完成。" });
-          return;
-        }
-        if (!state.draft.inputs.length) {
-          set({ lastError: "请先添加至少一个输入文件或文件夹。" });
-          return;
-        }
-
-        const outputDir =
-          state.draft.outputDir ||
-          state.settings.defaultOutputDir ||
-          state.environment?.defaultModelDir ||
-          "";
-        if (!outputDir) {
-          set({ lastError: "请先设置输出目录。" });
-          return;
-        }
-
-        const payload: StartJobPayload = {
-          jobType: state.draft.jobType,
-          inputs: state.draft.inputs,
-          outputDir,
-          modelName: state.settings.modelName,
-          modelDir: state.environment?.defaultModelDir,
-          language: state.settings.language,
-          device: state.settings.device,
-        };
-
-        const taskId = desktopMode
-          ? (await dispatchJob(payload)).taskId
-          : (await runMockJob(payload)).taskId;
-        const newJob: JobRecord = {
-          taskId,
-          type: payload.jobType,
-          status: desktopMode ? "queued" : "running",
-          createdAt: now(),
-          updatedAt: now(),
-          inputs: payload.inputs,
-          outputDir,
-          outputs: [],
-          progress: buildProgress(taskId, "任务已创建，等待开始。"),
-          logs: [
-            {
-              at: now(),
-              level: "info",
-              message: `已加入任务队列，共 ${payload.inputs.length} 项输入。`,
             },
-          ],
-        };
+            "info",
+            "任务完成。",
+          ),
+        }));
+        void get().refreshHistory();
+      },
+      onError: (payload) => {
+        const cancelled = payload.code === "JOB_CANCELLED";
+        patchJob(payload.taskId, (job) =>
+          addLog(
+            {
+              ...job,
+              status: cancelled ? "cancelled" : "failed",
+              updatedAt: now(),
+              error: payload.message,
+            },
+            cancelled ? "warning" : "error",
+            payload.message,
+          ),
+        );
+        set({ lastError: cancelled ? null : payload.message });
+        void get().refreshHistory();
+      },
+    });
+  },
+  connectInputDrops: async () => {
+    if (unsubscribeDropEvents) {
+      return;
+    }
 
-        set({
-          lastError: null,
-          draft: { ...state.draft, outputDir },
-          jobs: [newJob, ...state.jobs].slice(0, 12),
-        });
+    unsubscribeDropEvents = await subscribeToInputDrops(
+      (result) => {
+        get().addSelectionResult(result);
       },
-      cancelActiveJob: async (taskId) => {
-        if (desktopMode) {
-          await stopJob(taskId);
-        } else {
-          const timer = mockTimers.get(taskId);
-          if (timer) {
-            clearInterval(timer);
-            mockTimers.delete(taskId);
-          }
-        }
-        set({
-          jobs: get().jobs.map((job) =>
-            job.taskId === taskId
-              ? addLog(
-                  {
-                    ...job,
-                    status: "cancelled",
-                    updatedAt: now(),
-                    error: "任务已取消。",
-                  },
-                  "warning",
-                  "任务已取消。",
-                )
-              : job,
-          ),
-        });
+      () => useAppStore.getState().draft.jobType,
+    );
+  },
+  addSelectionResult: (result) => {
+    const deduped = [...new Set([...get().draft.inputs, ...result.accepted])];
+    set({
+      draft: { ...get().draft, inputs: deduped },
+      draftWarnings: result.skipped.map((item) => `${item.path}: ${item.reason}`),
+      lastError:
+        result.accepted.length === 0 && result.skipped.length
+          ? "没有可加入的有效媒体文件。"
+          : null,
+    });
+  },
+  chooseInputFiles: async () => {
+    const result = await selectInputs("files", get().draft.jobType);
+    get().addSelectionResult(result);
+  },
+  chooseInputFolders: async () => {
+    const result = await selectInputs("directories", get().draft.jobType);
+    get().addSelectionResult(result);
+  },
+  removeInputPath: (path) => {
+    set({
+      draft: {
+        ...get().draft,
+        inputs: get().draft.inputs.filter((item) => item !== path),
       },
-      ensureDefaultModel: async (modelId) => {
-        set({
-          busy: true,
-          models: get().models.map((model) =>
-            model.id === modelId ? { ...model, status: "downloading" } : model,
-          ),
-        });
-        try {
-          const result = await ensureRuntimeModel(modelId, get().environment?.defaultModelDir);
-          set({
-            busy: false,
-            environment: get().environment
-              ? {
-                  ...get().environment!,
-                  modelExists: true,
-                  defaultModelDir: result.modelDir,
-                }
-              : null,
-            models: get().models.map((model) =>
-              model.id === modelId
-                ? {
-                    ...model,
-                    status: "available",
-                    location: result.modelDir,
-                  }
-                : model,
-            ),
-          });
-        } catch (error) {
-          set({
-            busy: false,
-            lastError: error instanceof Error ? error.message : "模型安装失败。",
-            models: get().models.map((model) =>
-              model.id === modelId ? { ...model, status: "missing" } : model,
-            ),
-          });
-        }
-      },
-      openOutputPath: async (path) => {
-        await openPathWithSystem(path);
-      },
-      revealOutputPath: async (path) => {
-        await revealPath(path);
-      },
+    });
+  },
+  setDraftJobType: (jobType) =>
+    set({
+      draft: { ...get().draft, jobType, inputs: [] },
+      draftWarnings: [],
+      lastError: null,
     }),
-    {
-      name: "audio-to-text-app-store",
-      partialize: (state) => ({
-        activeView: state.activeView,
-        settings: state.settings,
-      }),
-    },
-  ),
-);
+  chooseOutputDir: async () => {
+    const path = await selectOutputDir(get().draft.outputDir || get().settings.outputDir);
+    if (path) {
+      set({ draft: { ...get().draft, outputDir: path } });
+    }
+  },
+  chooseModelDir: async () => {
+    const path = await selectDirectory("选择本地模型目录", get().settings.modelPath);
+    if (!path) {
+      return;
+    }
+    const nextSettings = { ...get().settings, modelPath: path };
+    const saved = await saveAppSettings(nextSettings);
+    const environment = await detectRuntimeEnvironment();
+    set({
+      settings: saved,
+      environment,
+      models: get().models.map((model) =>
+        model.id === saved.modelId ? { ...model, location: path } : model,
+      ),
+    });
+  },
+  saveSettings: async (settings) => {
+    const saved = await saveAppSettings(settings);
+    const environment = await detectRuntimeEnvironment();
+    set({
+      settings: saved,
+      environment,
+      draft: {
+        ...get().draft,
+        outputDir: get().draft.outputDir || saved.outputDir,
+      },
+      lastError: null,
+    });
+  },
+  startDraftJob: async () => {
+    const state = get();
+    if (!state.draft.inputs.length) {
+      set({ lastError: "请先添加至少一个输入文件或文件夹。" });
+      return;
+    }
+
+    let outputDir = state.draft.outputDir || state.settings.outputDir;
+    if (!outputDir) {
+      outputDir = await selectOutputDir();
+      if (!outputDir) {
+        set({ lastError: "请先设置输出目录。" });
+        return;
+      }
+      set({ draft: { ...state.draft, outputDir } });
+    }
+
+    const payload: StartJobPayload = {
+      jobType: state.draft.jobType,
+      inputs: state.draft.inputs,
+      outputDir,
+      modelName: state.settings.modelId,
+      modelDir: state.settings.modelPath,
+      language: state.settings.language,
+      device: state.settings.devicePreference,
+      ffmpegPath: state.settings.ffmpegPath,
+    };
+
+    const taskId = desktopMode
+      ? (await dispatchJob(payload)).taskId
+      : (await runMockJob(payload)).taskId;
+
+    const newJob: JobRecord = {
+      taskId,
+      type: payload.jobType,
+      status: "queued",
+      createdAt: now(),
+      updatedAt: now(),
+      inputs: payload.inputs,
+      outputDir,
+      outputs: [],
+      progress: buildProgress(taskId, "任务已创建，等待开始。"),
+      logs: [
+        {
+          at: now(),
+          level: "info",
+          message: `已加入任务队列，共 ${payload.inputs.length} 项输入。`,
+        },
+      ],
+    };
+
+    set({
+      lastError: null,
+      jobs: [newJob, ...state.jobs].slice(0, 24),
+    });
+  },
+  cancelJob: async (taskId) => {
+    if (desktopMode) {
+      await stopJob(taskId);
+    } else {
+      const timer = mockTimers.get(taskId);
+      if (timer) {
+        clearInterval(timer);
+        mockTimers.delete(taskId);
+      }
+    }
+    patchJob(taskId, (job) =>
+      addLog(
+        {
+          ...job,
+          status: "cancelled",
+          updatedAt: now(),
+          error: "任务已取消。",
+        },
+        "warning",
+        "任务已取消。",
+      ),
+    );
+  },
+  rerunHistoryJob: async (taskId) => {
+    const history = get().history.find((item) => item.taskId === taskId);
+    if (!history) {
+      set({ lastError: "未找到可重跑的历史任务。" });
+      return;
+    }
+
+    const nextTaskId = desktopMode
+      ? (await rerunHistoryJob(taskId)).taskId
+      : `mock-rerun-${Date.now()}`;
+    const payload = history.payloadJson;
+    const queuedJob: JobRecord = {
+      taskId: nextTaskId,
+      type: payload.jobType,
+      status: "queued",
+      createdAt: now(),
+      updatedAt: now(),
+      inputs: payload.inputs,
+      outputDir: payload.outputDir,
+      outputs: [],
+      progress: buildProgress(nextTaskId, "历史任务已重新加入队列。"),
+      logs: [
+        {
+          at: now(),
+          level: "info",
+          message: "历史任务已重新加入队列。",
+        },
+      ],
+    };
+
+    set({
+      jobs: [queuedJob, ...get().jobs].slice(0, 24),
+      lastError: null,
+    });
+
+    if (!desktopMode) {
+      void runMockJob(payload);
+    }
+  },
+  ensureDefaultModel: async (modelId, localPath) => {
+    set({
+      busy: true,
+      models: get().models.map((model) =>
+        model.id === modelId ? { ...model, status: "downloading" } : model,
+      ),
+    });
+    try {
+      const result = await ensureRuntimeModel(modelId, localPath ?? get().settings.modelPath);
+      const nextSettings = await saveAppSettings({
+        ...get().settings,
+        modelId,
+        modelPath: result.modelDir,
+      });
+      const environment = await detectRuntimeEnvironment();
+      set({
+        busy: false,
+        settings: nextSettings,
+        environment,
+        models: get().models.map((model) =>
+          model.id === modelId
+            ? {
+                ...model,
+                status: "available",
+                location: result.modelDir,
+              }
+            : model,
+        ),
+        lastError: null,
+      });
+    } catch (error) {
+      set({
+        busy: false,
+        lastError:
+          error instanceof Error
+            ? `${error.message}。请先确认模型目录可写，或手动选择已有模型目录。`
+            : "模型安装失败，请检查本地目录和依赖。",
+        models: get().models.map((model) =>
+          model.id === modelId ? { ...model, status: "missing" } : model,
+        ),
+      });
+    }
+  },
+  refreshHistory: async () => {
+    const history = await fetchHistory();
+    set({ history });
+  },
+  openOutputPath: async (path) => {
+    await openPathWithSystem(path);
+  },
+  revealOutputPath: async (path) => {
+    await revealPath(path);
+  },
+}));

@@ -9,12 +9,14 @@ import { Card, CardDescription, CardTitle } from "../components/ui/card";
 import { useAppStore } from "../store/app-store";
 
 const settingsSchema = z.object({
-  defaultOutputDir: z.string().min(1, "请选择默认输出目录"),
+  outputDir: z.string().min(1, "请选择默认输出目录"),
+  modelId: z.string().min(1, "模型名不能为空"),
+  modelPath: z.string().optional(),
   language: z.string().min(2, "语言代码不能为空"),
-  modelName: z.string().min(1, "模型名不能为空"),
-  device: z.enum(["auto", "cpu", "cuda"]),
+  devicePreference: z.enum(["auto", "cpu", "cuda"]),
+  ffmpegPath: z.string().optional(),
   concurrency: z.literal(1),
-  tempPolicy: z.enum(["cleanup", "retain"]),
+  tempPolicy: z.enum(["cleanup_after_success", "keep_all"]),
 });
 
 type SettingsFormValues = z.infer<typeof settingsSchema>;
@@ -24,6 +26,7 @@ export function SettingsPage() {
   const environment = useAppStore((state) => state.environment);
   const saveSettings = useAppStore((state) => state.saveSettings);
   const chooseOutputDir = useAppStore((state) => state.chooseOutputDir);
+  const chooseModelDir = useAppStore((state) => state.chooseModelDir);
 
   const form = useForm<SettingsFormValues>({
     resolver: zodResolver(settingsSchema),
@@ -33,9 +36,11 @@ export function SettingsPage() {
   useEffect(() => {
     form.reset({
       ...settings,
-      defaultOutputDir: settings.defaultOutputDir || environment?.defaultModelDir || "",
+      outputDir: settings.outputDir || "",
+      modelPath: settings.modelPath || environment?.defaultModelDir || "",
+      ffmpegPath: settings.ffmpegPath || environment?.ffmpegPath || "",
     });
-  }, [environment?.defaultModelDir, form, settings]);
+  }, [environment?.defaultModelDir, environment?.ffmpegPath, form, settings]);
 
   const values = useWatch({ control: form.control });
 
@@ -43,31 +48,34 @@ export function SettingsPage() {
     <div className="grid gap-6 xl:grid-cols-[0.85fr_1.15fr]">
       <Card>
         <CardTitle>运行默认值</CardTitle>
-        <CardDescription className="mt-2">
-          这里保存桌面端的默认输出、语言、模型和资源策略。第一版固定单并发。
-        </CardDescription>
+        <CardDescription className="mt-2">当前默认配置。</CardDescription>
         <div className="mt-6 grid gap-3 text-sm text-[var(--muted-foreground)]">
-          <SummaryRow label="默认模型" value={values.modelName ?? "-"} />
-          <SummaryRow label="设备策略" value={values.device ?? "-"} />
+          <SummaryRow label="默认模型" value={values.modelId ?? "-"} />
+          <SummaryRow label="设备策略" value={values.devicePreference ?? "-"} />
           <SummaryRow label="语言" value={values.language ?? "-"} />
           <SummaryRow label="临时文件" value={values.tempPolicy ?? "-"} />
+          <SummaryRow label="ffmpeg" value={values.ffmpegPath || "PATH 自动检测"} />
         </div>
       </Card>
 
       <Card>
         <CardTitle>设置</CardTitle>
-        <CardDescription className="mt-2">
-          这些配置会影响新任务的默认行为，不会修改已经在队列中的作业。
-        </CardDescription>
+        <CardDescription className="mt-2">仅影响新任务。</CardDescription>
 
         <form
           className="mt-6 grid gap-5"
-          onSubmit={form.handleSubmit((nextValues) => saveSettings(nextValues))}
+          onSubmit={form.handleSubmit(async (nextValues) => {
+            await saveSettings({
+              ...nextValues,
+              modelPath: nextValues.modelPath?.trim() || undefined,
+              ffmpegPath: nextValues.ffmpegPath?.trim() || undefined,
+            });
+          })}
         >
-          <Field label="默认输出目录" error={form.formState.errors.defaultOutputDir?.message}>
+          <Field label="默认输出目录" error={form.formState.errors.outputDir?.message}>
             <div className="flex gap-3">
               <input
-                {...form.register("defaultOutputDir")}
+                {...form.register("outputDir")}
                 className="field"
                 placeholder="例如 C:\\Users\\wangk\\Documents\\AudioToText"
               />
@@ -76,8 +84,25 @@ export function SettingsPage() {
                 type="button"
                 onClick={async () => {
                   await chooseOutputDir();
-                  const store = useAppStore.getState();
-                  form.setValue("defaultOutputDir", store.draft.outputDir, {
+                  form.setValue("outputDir", useAppStore.getState().draft.outputDir, {
+                    shouldValidate: true,
+                  });
+                }}
+              >
+                选择
+              </Button>
+            </div>
+          </Field>
+
+          <Field label="模型目录" error={form.formState.errors.modelPath?.message}>
+            <div className="flex gap-3">
+              <input {...form.register("modelPath")} className="field" placeholder="默认应用模型目录" />
+              <Button
+                variant="secondary"
+                type="button"
+                onClick={async () => {
+                  await chooseModelDir();
+                  form.setValue("modelPath", useAppStore.getState().settings.modelPath ?? "", {
                     shouldValidate: true,
                   });
                 }}
@@ -91,13 +116,17 @@ export function SettingsPage() {
             <input {...form.register("language")} className="field" placeholder="zh" />
           </Field>
 
-          <Field label="默认模型" error={form.formState.errors.modelName?.message}>
-            <input {...form.register("modelName")} className="field" placeholder="medium" />
+          <Field label="默认模型" error={form.formState.errors.modelId?.message}>
+            <input {...form.register("modelId")} className="field" placeholder="medium" />
+          </Field>
+
+          <Field label="ffmpeg 路径" error={form.formState.errors.ffmpegPath?.message}>
+            <input {...form.register("ffmpegPath")} className="field" placeholder="留空则从 PATH 自动检测" />
           </Field>
 
           <div className="grid gap-5 md:grid-cols-3">
-            <Field label="设备策略" error={form.formState.errors.device?.message}>
-              <select {...form.register("device")} className="field">
+            <Field label="设备策略" error={form.formState.errors.devicePreference?.message}>
+              <select {...form.register("devicePreference")} className="field">
                 <option value="auto">自动</option>
                 <option value="cuda">优先 CUDA</option>
                 <option value="cpu">仅 CPU</option>
@@ -105,15 +134,15 @@ export function SettingsPage() {
             </Field>
 
             <Field label="并发数" error={form.formState.errors.concurrency?.message}>
-              <select {...form.register("concurrency", { valueAsNumber: true })} className="field">
+              <select {...form.register("concurrency", { valueAsNumber: true })} className="field" disabled>
                 <option value={1}>1</option>
               </select>
             </Field>
 
             <Field label="临时文件策略" error={form.formState.errors.tempPolicy?.message}>
               <select {...form.register("tempPolicy")} className="field">
-                <option value="cleanup">任务后清理</option>
-                <option value="retain">保留中间文件</option>
+                <option value="cleanup_after_success">任务后清理</option>
+                <option value="keep_all">保留中间文件</option>
               </select>
             </Field>
           </div>
@@ -152,7 +181,7 @@ function SummaryRow({ label, value }: { label: string; value: string | number })
   return (
     <div className="rounded-[22px] border border-white/8 bg-white/4 px-4 py-3">
       <div className="text-xs uppercase tracking-[0.2em] text-[var(--muted-foreground)]">{label}</div>
-      <div className="mt-2 text-sm text-[var(--foreground)]">{value}</div>
+      <div className="mt-2 break-all text-sm text-[var(--foreground)]">{value}</div>
     </div>
   );
 }
