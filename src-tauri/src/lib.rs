@@ -47,6 +47,7 @@ pub struct EnvironmentInfo {
     pub device: String,
     pub ffmpeg_available: bool,
     pub ffmpeg_version: Option<String>,
+    pub ocr_available: bool,
     pub ffmpeg_path: String,
     pub default_model_dir: String,
     pub model_exists: bool,
@@ -113,6 +114,7 @@ struct WorkerEnvironmentInfo {
     device: String,
     ffmpeg_available: bool,
     ffmpeg_version: Option<String>,
+    ocr_available: bool,
     default_model_dir: String,
     model_exists: bool,
 }
@@ -656,7 +658,7 @@ fn prepare_job(
 
     let normalized = normalize_input_paths(&payload.inputs, &payload.job_type);
     if normalized.accepted.is_empty() {
-        return Err("未找到可处理的音频或视频文件。".to_string());
+        return Err("未找到可处理的输入文件。".to_string());
     }
 
     let output_dir = payload.output_dir.trim().to_string();
@@ -679,7 +681,7 @@ fn prepare_job(
         .unwrap_or_else(|| resolve_default_model_dir().to_string_lossy().to_string());
 
     let environment = detect_environment_for_paths(app, &ffmpeg_path, &model_dir)?;
-    if !environment.ffmpeg_available {
+    if requires_ffmpeg(&payload.job_type) && !environment.ffmpeg_available {
         return Err(
             "未检测到 ffmpeg。请在设置页配置 ffmpegPath，或把 ffmpeg 放进系统 PATH。".to_string(),
         );
@@ -687,8 +689,11 @@ fn prepare_job(
     if !environment.app_data_writable {
         return Err("应用数据目录不可写，请检查当前用户权限或磁盘状态。".to_string());
     }
-    if !environment.model_exists {
+    if requires_whisper_model(&payload.job_type) && !environment.model_exists {
         return Err("未检测到可用模型，请先在模型管理页安装模型，或选择已有模型目录。".to_string());
+    }
+    if payload.job_type == "image_ocr" && !environment.ocr_available {
+        return Err("未检测到图片 OCR 依赖，请先执行 npm run setup:windows。".to_string());
     }
 
     let prepared_payload = StartJobPayload {
@@ -793,6 +798,7 @@ fn detect_environment_for_paths(
         device: worker_info.device,
         ffmpeg_available: worker_info.ffmpeg_available,
         ffmpeg_version: worker_info.ffmpeg_version,
+        ocr_available: worker_info.ocr_available,
         ffmpeg_path: ffmpeg_path.to_string(),
         default_model_dir: worker_info.default_model_dir,
         model_exists: worker_info.model_exists,
@@ -892,9 +898,11 @@ fn is_supported_media(path: &Path, job_type: &str) -> bool {
 
     let audio = ["mp3", "wav", "m4a", "flac", "aac", "ogg"];
     let video = ["mp4", "mkv", "mov", "avi", "webm", "flv", "m4v"];
+    let image = ["png", "jpg", "jpeg", "bmp", "webp", "tif", "tiff"];
 
     match job_type {
         "video_extract_audio" | "video_transcribe" => video.contains(&extension.as_str()),
+        "image_ocr" => image.contains(&extension.as_str()),
         _ => audio.contains(&extension.as_str()) || extension == "mp4",
     }
 }
@@ -1026,7 +1034,11 @@ fn resolve_app_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
 
 fn resolve_default_model_dir() -> PathBuf {
     if let Some(base) = dirs::data_local_dir() {
-        return base.join("AudioToText").join("models");
+        let legacy = base.join("AudioToText").join("models");
+        if legacy.exists() {
+            return legacy;
+        }
+        return base.join("MultiConverter").join("models");
     }
     PathBuf::from("models")
 }
@@ -1062,6 +1074,14 @@ fn normalize_device(value: &str) -> String {
         "cuda" => "cuda".to_string(),
         _ => "auto".to_string(),
     }
+}
+
+fn requires_ffmpeg(job_type: &str) -> bool {
+    job_type == "video_extract_audio"
+}
+
+fn requires_whisper_model(job_type: &str) -> bool {
+    matches!(job_type, "audio_transcribe" | "video_transcribe")
 }
 
 fn ensure_directory_writable(path: &Path) -> bool {

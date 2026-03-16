@@ -34,6 +34,8 @@ export function formatJobType(value: string) {
       return "视频转文字";
     case "video_extract_audio":
       return "视频转音频";
+    case "image_ocr":
+      return "图片提取文字";
     default:
       return value;
   }

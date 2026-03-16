@@ -1,7 +1,8 @@
 export type JobType =
   | "audio_transcribe"
   | "video_transcribe"
-  | "video_extract_audio";
+  | "video_extract_audio"
+  | "image_ocr";
 
 export type JobStatus =
   | "queued"
@@ -90,6 +91,7 @@ export interface EnvironmentInfo {
   device: "cpu" | "cuda";
   ffmpegAvailable: boolean;
   ffmpegVersion?: string | null;
+  ocrAvailable: boolean;
   ffmpegPath: string;
   defaultModelDir: string;
   modelExists: boolean;

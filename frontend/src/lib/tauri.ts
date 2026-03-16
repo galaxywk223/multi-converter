@@ -31,6 +31,13 @@ const mediaExtensions = [
   "webm",
   "flv",
   "m4v",
+  "png",
+  "jpg",
+  "jpeg",
+  "bmp",
+  "webp",
+  "tif",
+  "tiff",
 ];
 
 export interface JobDoneEvent {
@@ -60,7 +67,7 @@ export async function selectInputs(
   }
 
   const result = await open({
-    title: mode === "files" ? "选择音频或视频文件" : "选择待处理文件夹",
+    title: mode === "files" ? "选择输入文件" : "选择待处理文件夹",
     multiple: true,
     directory: mode === "directories",
     recursive: mode === "directories",
@@ -68,7 +75,7 @@ export async function selectInputs(
       mode === "files"
         ? [
             {
-              name: "Media",
+              name: "Supported",
               extensions: mediaExtensions,
             },
           ]
@@ -128,10 +135,11 @@ export async function detectRuntimeEnvironment() {
       device: "cuda",
       ffmpegAvailable: true,
       ffmpegVersion: "mock ffmpeg runtime",
+      ocrAvailable: true,
       ffmpegPath: "ffmpeg",
-      defaultModelDir: "C:\\Users\\You\\AppData\\Local\\AudioToText\\models",
+      defaultModelDir: "C:\\Users\\You\\AppData\\Local\\MultiConverter\\models",
       modelExists: false,
-      appDataDir: "C:\\Users\\You\\AppData\\Local\\AudioToText",
+      appDataDir: "C:\\Users\\You\\AppData\\Local\\MultiConverter",
       appDataWritable: true,
     } satisfies EnvironmentInfo;
   }
@@ -164,8 +172,8 @@ export async function ensureRuntimeModel(modelId: string, localPath?: string) {
     return {
       modelName: modelId,
       device: "cuda",
-      modelDir: localPath ?? "C:\\Users\\You\\AppData\\Local\\AudioToText\\models",
-      modelPath: `${localPath ?? "C:\\Users\\You\\AppData\\Local\\AudioToText\\models"}\\${modelId}`,
+      modelDir: localPath ?? "C:\\Users\\You\\AppData\\Local\\MultiConverter\\models",
+      modelPath: `${localPath ?? "C:\\Users\\You\\AppData\\Local\\MultiConverter\\models"}\\${modelId}`,
     };
   }
   return invoke<{

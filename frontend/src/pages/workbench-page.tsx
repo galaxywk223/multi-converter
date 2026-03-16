@@ -3,6 +3,7 @@ import {
   FolderPlus,
   Film,
   FolderOutput,
+  Image as ImageIcon,
   Play,
   Plus,
   Trash2,
@@ -26,6 +27,12 @@ const jobTypeMeta: Array<{
   description: string;
   icon: typeof Waves;
 }> = [
+  {
+    id: "image_ocr",
+    title: "图片提取文字",
+    description: "输出 TXT",
+    icon: ImageIcon,
+  },
   {
     id: "audio_transcribe",
     title: "音频转文字",
@@ -89,10 +96,10 @@ export function WorkbenchPage() {
             </Badge>
             <div className="space-y-3">
               <h2 className="max-w-2xl text-4xl font-semibold leading-tight tracking-[-0.04em] text-white">
-                本地音视频转换
+                多功能转换器
               </h2>
               <p className="max-w-2xl text-sm leading-7 text-[var(--muted-foreground)]">
-                选择模式，加入文件，开始处理。
+                图片、音频、视频都可以处理。
               </p>
             </div>
           </div>

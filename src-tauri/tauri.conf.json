@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "AudioToText Desktop",
+  "productName": "Multi Converter",
   "version": "0.1.0",
   "identifier": "com.wangk.audio_to_text",
   "build": {
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "AudioToText Desktop",
+        "title": "Multi Converter",
         "width": 1520,
         "height": 980,
         "minWidth": 1180,

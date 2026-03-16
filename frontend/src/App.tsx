@@ -63,10 +63,10 @@ function App() {
           <div className="sticky top-4 flex h-[calc(100vh-2rem)] w-full flex-col rounded-[32px] border border-white/10 bg-[rgba(9,13,18,0.8)] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.24)] backdrop-blur-xl">
             <div className="mb-8 space-y-3">
               <Badge className="w-fit border-[rgba(236,110,52,0.22)] bg-[rgba(236,110,52,0.14)] text-[var(--accent)]">
-                AudioToText Desktop
+                Multi Converter
               </Badge>
-              <h1 className="text-3xl font-semibold tracking-[-0.05em] text-white">本地转换</h1>
-              <p className="text-sm leading-7 text-[var(--muted-foreground)]">音频转文字，视频转文字，视频转音频。</p>
+              <h1 className="text-3xl font-semibold tracking-[-0.05em] text-white">多功能转换器</h1>
+              <p className="text-sm leading-7 text-[var(--muted-foreground)]">图片提取文字，音频转文字，视频处理。</p>
             </div>
 
             <nav className="space-y-2">
@@ -111,6 +111,7 @@ function App() {
                 <div>Device: {environment?.device ?? "检测中..."}</div>
                 <div>Python: {environment?.pythonVersion ?? "检测中..."}</div>
                 <div>ffmpeg: {environment?.ffmpegAvailable ? "ready" : "missing"}</div>
+                <div>ocr: {environment?.ocrAvailable ? "ready" : "missing"}</div>
                 <div>AppData: {environment?.appDataWritable ? "writable" : "blocked"}</div>
               </div>
             </div>

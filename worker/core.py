@@ -5,7 +5,7 @@ import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterable
+from typing import Iterable
 
 from faster_whisper import WhisperModel
 
@@ -13,6 +13,9 @@ from .events import EventWriter
 
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a", ".flac", ".aac", ".ogg"}
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".mov", ".avi", ".webm", ".flv", ".m4v"}
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".webp", ".tif", ".tiff"}
+APP_DIR_NAME = "MultiConverter"
+LEGACY_APP_DIR_NAME = "AudioToText"
 
 
 @dataclass(slots=True)
@@ -42,7 +45,11 @@ def detect_device(preferred: str = "auto") -> str:
 def default_model_dir() -> Path:
     base = os.environ.get("LOCALAPPDATA")
     if base:
-        return Path(base) / "AudioToText" / "models"
+        root = Path(base)
+        legacy = root / LEGACY_APP_DIR_NAME / "models"
+        if legacy.exists():
+            return legacy
+        return root / APP_DIR_NAME / "models"
     return Path.cwd() / "models"
 
 
@@ -51,6 +58,8 @@ def resolve_input_files(inputs: Iterable[Path], job_type: str) -> list[Path]:
         valid_extensions = VIDEO_EXTENSIONS
     elif job_type == "video_transcribe":
         valid_extensions = VIDEO_EXTENSIONS
+    elif job_type == "image_ocr":
+        valid_extensions = IMAGE_EXTENSIONS
     else:
         valid_extensions = AUDIO_EXTENSIONS | {".mp4"}
 
@@ -65,7 +74,8 @@ def resolve_input_files(inputs: Iterable[Path], job_type: str) -> list[Path]:
             resolved.extend(children)
         elif item.is_file() and item.suffix.lower() in valid_extensions:
             resolved.append(item)
-    unique = []
+
+    unique: list[Path] = []
     seen: set[Path] = set()
     for file_path in resolved:
         normalized = file_path.resolve()
@@ -103,6 +113,7 @@ def environment_snapshot(ffmpeg_path: str = "ffmpeg", model_dir: Path | None = N
 
     detected_device = detect_device()
     model_exists = model_root.exists() and any(model_root.rglob("model.bin"))
+    ocr_available = can_use_ocr()
 
     return {
         "pythonVersion": os.sys.version.split()[0],
@@ -111,6 +122,7 @@ def environment_snapshot(ffmpeg_path: str = "ffmpeg", model_dir: Path | None = N
         "ffmpegVersion": ffmpeg_version,
         "defaultModelDir": str(model_root),
         "modelExists": model_exists,
+        "ocrAvailable": ocr_available,
     }
 
 
@@ -150,8 +162,11 @@ def run_job(config: RunConfig, events: EventWriter) -> dict[str, object]:
         total_files=len(input_files),
         message="输入文件检查完成，开始执行任务。",
     )
+
     if config.job_type == "video_extract_audio":
         outputs = extract_audio(config, input_files, events)
+    elif config.job_type == "image_ocr":
+        outputs = extract_text_from_images(config, input_files, events)
     else:
         outputs = transcribe_media(config, input_files, events)
 
@@ -186,7 +201,7 @@ def transcribe_media(config: RunConfig, files: list[Path], events: EventWriter) 
             percent=((index - 1) / total) * 100,
             current_file=file_path.name,
             total_files=total,
-            message=f"Preparing {file_path.name}",
+            message=f"读取 {file_path.name}",
         )
 
         output_file = config.output_dir / f"{file_path.stem}.txt"
@@ -208,19 +223,7 @@ def transcribe_media(config: RunConfig, files: list[Path], events: EventWriter) 
                 f"[{format_timestamp(segment.start)} -> {format_timestamp(segment.end)}] {text}",
             )
 
-        events.progress(
-            stage="writing",
-            percent=min(((index - 1) / total) * 100 + 5, 99),
-            current_file=file_path.name,
-            total_files=total,
-            message=f"Writing {output_file.name}",
-        )
-        with output_file.open("w", encoding="utf-8") as handle:
-            handle.write(f"文件名: {file_path.name}\n")
-            handle.write("-" * 30 + "\n\n")
-            handle.write("\n".join(lines))
-            if lines:
-                handle.write("\n")
+        write_text_output(output_file, file_path.name, lines, events, total, index, "writing")
 
         elapsed = time.time() - started_at
         percent = (index / total) * 100
@@ -231,7 +234,43 @@ def transcribe_media(config: RunConfig, files: list[Path], events: EventWriter) 
             current_file=file_path.name,
             total_files=total,
             eta=round(elapsed * remaining, 2) if remaining else 0,
-            message=f"Saved transcript to {output_file.name}",
+            message=f"已生成 {output_file.name}",
+        )
+        outputs.append(output_file.resolve())
+
+    return outputs
+
+
+def extract_text_from_images(config: RunConfig, files: list[Path], events: EventWriter) -> list[Path]:
+    ocr = create_ocr_engine()
+    outputs: list[Path] = []
+    total = len(files)
+
+    for index, file_path in enumerate(files, start=1):
+        started_at = time.time()
+        events.progress(
+            stage="recognizing",
+            percent=((index - 1) / total) * 100,
+            current_file=file_path.name,
+            total_files=total,
+            message=f"识别 {file_path.name}",
+        )
+
+        result, _elapsed = ocr(str(file_path))
+        lines = extract_ocr_lines(result)
+        output_file = config.output_dir / f"{file_path.stem}.txt"
+        write_text_output(output_file, file_path.name, lines, events, total, index, "writing")
+
+        elapsed = time.time() - started_at
+        percent = (index / total) * 100
+        remaining = total - index
+        events.progress(
+            stage="recognizing",
+            percent=percent,
+            current_file=file_path.name,
+            total_files=total,
+            eta=round(elapsed * remaining, 2) if remaining else 0,
+            message=f"已生成 {output_file.name}",
         )
         outputs.append(output_file.resolve())
 
@@ -314,7 +353,73 @@ def extract_audio(config: RunConfig, files: list[Path], events: EventWriter) -> 
             current_file=file_path.name,
             total_files=total,
             eta=round(elapsed * remaining, 2) if remaining else 0,
-            message=f"Saved audio to {output_file.name}",
+            message=f"已生成 {output_file.name}",
         )
         outputs.append(output_file.resolve())
     return outputs
+
+
+def write_text_output(
+    output_file: Path,
+    source_name: str,
+    lines: list[str],
+    events: EventWriter,
+    total: int,
+    index: int,
+    stage: str,
+) -> None:
+    events.progress(
+        stage=stage,
+        percent=min(((index - 1) / total) * 100 + 5, 99),
+        current_file=source_name,
+        total_files=total,
+        message=f"写入 {output_file.name}",
+    )
+    with output_file.open("w", encoding="utf-8") as handle:
+        handle.write(f"文件名: {source_name}\n")
+        handle.write("-" * 30 + "\n\n")
+        handle.write("\n".join(lines))
+        if lines:
+            handle.write("\n")
+
+
+def can_use_ocr() -> bool:
+    try:
+        from rapidocr_onnxruntime import RapidOCR  # noqa: F401
+    except Exception:
+        return False
+    return True
+
+
+def create_ocr_engine():
+    try:
+        from rapidocr_onnxruntime import RapidOCR
+    except Exception as exc:
+        raise RuntimeError("未安装图片 OCR 依赖，请先重新执行 npm run setup:windows。") from exc
+    return RapidOCR()
+
+
+def extract_ocr_lines(result: object) -> list[str]:
+    if not result:
+        return []
+
+    lines: list[str] = []
+    for item in result:
+        if not isinstance(item, (list, tuple)) or len(item) < 2:
+            continue
+        text_info = item[1]
+        if isinstance(text_info, (list, tuple)) and text_info:
+            text = str(text_info[0]).strip()
+        else:
+            text = str(text_info).strip()
+        if text:
+            lines.append(text)
+    return lines
+
+
+def requires_ffmpeg(job_type: str) -> bool:
+    return job_type == "video_extract_audio"
+
+
+def requires_whisper_model(job_type: str) -> bool:
+    return job_type in {"audio_transcribe", "video_transcribe"}

@@ -9,11 +9,11 @@ from .events import EventWriter, generate_task_id, print_json
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="AudioToText worker CLI")
+    parser = argparse.ArgumentParser(description="MultiConverter worker CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    run_parser = subparsers.add_parser("run", help="Run a media job")
-    run_parser.add_argument("--job-type", required=True, choices=["audio_transcribe", "video_transcribe", "video_extract_audio"])
+    run_parser = subparsers.add_parser("run", help="Run a conversion job")
+    run_parser.add_argument("--job-type", required=True, choices=["audio_transcribe", "video_transcribe", "video_extract_audio", "image_ocr"])
     run_parser.add_argument("--input", dest="inputs", action="append", required=True, help="Input file or folder")
     run_parser.add_argument("--output-dir", required=True, help="Output directory")
     run_parser.add_argument("--task-id", default=generate_task_id())

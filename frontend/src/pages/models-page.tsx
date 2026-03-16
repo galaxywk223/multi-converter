@@ -37,6 +37,11 @@ export function ModelsPage() {
               value={environment?.appDataWritable ? "可写" : "不可写"}
               icon={HardDriveDownload}
             />
+            <MetaRow
+              label="OCR"
+              value={environment?.ocrAvailable ? "可用" : "缺失"}
+              icon={ShieldCheck}
+            />
           </div>
 
           <div className="mt-5 flex flex-wrap gap-2">

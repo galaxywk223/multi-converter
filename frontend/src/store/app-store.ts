@@ -8,7 +8,7 @@ import {
   fetchHistory,
   loadAppSettings,
   openPathWithSystem,
-  rerunHistoryJob,
+  rerunHistoryJob as rerunHistoryJobRequest,
   revealPath,
   saveAppSettings,
   selectDirectory,
@@ -43,7 +43,7 @@ const defaultSettings: AppSettings = {
 };
 
 const initialDraft: DraftJob = {
-  jobType: "audio_transcribe",
+  jobType: "image_ocr",
   inputs: [],
   outputDir: "",
 };
@@ -138,8 +138,13 @@ async function runMockJob(payload: StartJobPayload) {
     { percent: 30, stage: "queueing", message: "开始处理第一批文件..." },
     {
       percent: 66,
-      stage: payload.jobType === "video_extract_audio" ? "extracting" : "transcribing",
-      message: "正在处理媒体内容...",
+      stage:
+        payload.jobType === "video_extract_audio"
+          ? "extracting"
+          : payload.jobType === "image_ocr"
+            ? "recognizing"
+            : "transcribing",
+      message: payload.jobType === "image_ocr" ? "识别图片文字..." : "处理文件...",
     },
     { percent: 92, stage: "writing", message: "写入输出文件..." },
     { percent: 100, stage: "completed", message: "任务完成。" },
@@ -342,7 +347,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       draftWarnings: result.skipped.map((item) => `${item.path}: ${item.reason}`),
       lastError:
         result.accepted.length === 0 && result.skipped.length
-          ? "没有可加入的有效媒体文件。"
+          ? "没有可加入的有效文件。"
           : null,
     });
   },
@@ -490,7 +495,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }
 
     const nextTaskId = desktopMode
-      ? (await rerunHistoryJob(taskId)).taskId
+      ? (await rerunHistoryJobRequest(taskId)).taskId
       : `mock-rerun-${Date.now()}`;
     const payload = history.payloadJson;
     const queuedJob: JobRecord = {

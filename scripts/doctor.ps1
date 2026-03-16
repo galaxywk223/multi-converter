@@ -19,7 +19,7 @@ function Check-Command($label, $command) {
   return $false
 }
 
-Write-Host "AudioToText Doctor" -ForegroundColor Cyan
+Write-Host "Multi Converter Doctor" -ForegroundColor Cyan
 Write-Host ""
 
 $hasNode = Check-Command "Node.js" "node"

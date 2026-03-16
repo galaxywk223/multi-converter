@@ -74,11 +74,11 @@ export function SettingsPage() {
         >
           <Field label="默认输出目录" error={form.formState.errors.outputDir?.message}>
             <div className="flex gap-3">
-              <input
-                {...form.register("outputDir")}
-                className="field"
-                placeholder="例如 C:\\Users\\wangk\\Documents\\AudioToText"
-              />
+                <input
+                  {...form.register("outputDir")}
+                  className="field"
+                  placeholder="例如 C:\\Users\\wangk\\Documents\\MultiConverter"
+                />
               <Button
                 variant="secondary"
                 type="button"
