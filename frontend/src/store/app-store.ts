@@ -497,9 +497,19 @@ export const useAppStore = create<AppStore>((set, get) => ({
       ffmpegPath: state.settings.ffmpegPath,
     };
 
-    const taskId = desktopMode
-      ? (await dispatchJob(payload)).taskId
-      : (await runMockJob(payload)).taskId;
+    let taskId: string;
+    try {
+      taskId = desktopMode
+        ? (await dispatchJob(payload)).taskId
+        : (await runMockJob(payload)).taskId;
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "创建任务失败，请检查模型、ffmpeg 和输出目录设置。";
+      set({ lastError: message });
+      return;
+    }
 
     const newJob: JobRecord = {
       taskId,
