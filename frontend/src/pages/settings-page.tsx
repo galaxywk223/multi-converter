@@ -3,9 +3,10 @@ import { useEffect } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { FolderOpen, RotateCcw, Save } from "lucide-react";
 
 import { Button } from "../components/ui/button";
-import { Card, CardTitle } from "../components/ui/card";
+import { compactFileLabel } from "../lib/utils";
 import { useAppStore } from "../store/app-store";
 
 const settingsSchema = z.object({
@@ -45,36 +46,35 @@ export function SettingsPage() {
   const values = useWatch({ control: form.control });
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
-      <Card>
-        <CardTitle>当前默认值</CardTitle>
-        <div className="mt-6 grid gap-3 text-sm text-[var(--muted-foreground)]">
+    <div className="settings-page">
+      <aside className="summary-pane">
+        <div className="panel-title">当前配置</div>
+        <div className="panel-caption">保存后应用于后续任务</div>
+        <div className="mt-5 grid gap-2">
           <SummaryRow label="默认模型" value={values.modelId ?? "-"} />
           <SummaryRow label="设备策略" value={values.devicePreference ?? "-"} />
           <SummaryRow label="语言" value={values.language ?? "-"} />
           <SummaryRow label="临时文件" value={values.tempPolicy ?? "-"} />
-          <SummaryRow label="ffmpeg" value={values.ffmpegPath || "PATH 自动检测"} />
+          <SummaryRow label="输出目录" value={compactFileLabel(values.outputDir ?? "-", 32)} />
         </div>
-      </Card>
+      </aside>
 
-      <Card>
-        <CardTitle>设置</CardTitle>
-
-        <form
-          className="mt-5 grid gap-5"
-          onSubmit={form.handleSubmit(async (nextValues) => {
-            await saveSettings({
-              ...nextValues,
-              modelPath: nextValues.modelPath?.trim() || undefined,
-              ffmpegPath: nextValues.ffmpegPath?.trim() || undefined,
-            });
-          })}
-        >
+      <form
+        className="settings-form"
+        onSubmit={form.handleSubmit(async (nextValues) => {
+          await saveSettings({
+            ...nextValues,
+            modelPath: nextValues.modelPath?.trim() || undefined,
+            ffmpegPath: nextValues.ffmpegPath?.trim() || undefined,
+          });
+        })}
+      >
+        <SettingsGroup title="路径">
           <Field label="默认输出目录" error={form.formState.errors.outputDir?.message}>
-            <div className="flex gap-3">
+            <div className="input-action">
               <input
                 {...form.register("outputDir")}
-                className="field"
+                className="field compact-field"
                 placeholder="例如 C:\\Users\\wangk\\Documents\\MultiConverter"
               />
               <Button
@@ -87,14 +87,15 @@ export function SettingsPage() {
                   });
                 }}
               >
+                <FolderOpen className="h-4 w-4" />
                 选择
               </Button>
             </div>
           </Field>
 
           <Field label="模型目录" error={form.formState.errors.modelPath?.message}>
-            <div className="flex gap-3">
-              <input {...form.register("modelPath")} className="field" placeholder="默认应用模型目录" />
+            <div className="input-action">
+              <input {...form.register("modelPath")} className="field compact-field" placeholder="默认应用模型目录" />
               <Button
                 variant="secondary"
                 type="button"
@@ -105,26 +106,31 @@ export function SettingsPage() {
                   });
                 }}
               >
+                <FolderOpen className="h-4 w-4" />
                 选择
               </Button>
             </div>
           </Field>
 
-          <Field label="语言代码" error={form.formState.errors.language?.message}>
-            <input {...form.register("language")} className="field" placeholder="zh" />
-          </Field>
-
-          <Field label="默认模型" error={form.formState.errors.modelId?.message}>
-            <input {...form.register("modelId")} className="field" placeholder="medium" />
-          </Field>
-
           <Field label="ffmpeg 路径" error={form.formState.errors.ffmpegPath?.message}>
-            <input {...form.register("ffmpegPath")} className="field" placeholder="留空则从 PATH 自动检测" />
+            <input {...form.register("ffmpegPath")} className="field compact-field" placeholder="留空则从 PATH 自动检测" />
           </Field>
+        </SettingsGroup>
 
-            <div className="grid gap-5 md:grid-cols-3">
+        <SettingsGroup title="转写与运行">
+          <div className="settings-grid">
+            <Field label="默认模型" error={form.formState.errors.modelId?.message}>
+              <input {...form.register("modelId")} className="field compact-field" placeholder="medium" />
+            </Field>
+
+            <Field label="语言代码" error={form.formState.errors.language?.message}>
+              <input {...form.register("language")} className="field compact-field" placeholder="zh" />
+            </Field>
+          </div>
+
+          <div className="settings-grid">
             <Field label="设备策略" error={form.formState.errors.devicePreference?.message}>
-              <select {...form.register("devicePreference")} className="field">
+              <select {...form.register("devicePreference")} className="field compact-field">
                 <option value="auto">自动</option>
                 <option value="cuda">优先 CUDA</option>
                 <option value="cpu">仅 CPU</option>
@@ -132,28 +138,41 @@ export function SettingsPage() {
             </Field>
 
             <Field label="并发数" error={form.formState.errors.concurrency?.message}>
-              <select {...form.register("concurrency", { valueAsNumber: true })} className="field" disabled>
+              <select {...form.register("concurrency", { valueAsNumber: true })} className="field compact-field" disabled>
                 <option value={1}>1</option>
               </select>
             </Field>
 
             <Field label="临时文件策略" error={form.formState.errors.tempPolicy?.message}>
-              <select {...form.register("tempPolicy")} className="field">
+              <select {...form.register("tempPolicy")} className="field compact-field">
                 <option value="cleanup_after_success">任务后清理</option>
                 <option value="keep_all">保留中间文件</option>
               </select>
             </Field>
           </div>
+        </SettingsGroup>
 
-          <div className="flex items-center gap-3 pt-2">
-            <Button type="submit">保存设置</Button>
-            <Button variant="ghost" type="button" onClick={() => form.reset(settings)}>
-              还原
-            </Button>
-          </div>
-        </form>
-      </Card>
+        <div className="settings-actions">
+          <Button type="submit">
+            <Save className="h-4 w-4" />
+            保存设置
+          </Button>
+          <Button variant="ghost" type="button" onClick={() => form.reset(settings)}>
+            <RotateCcw className="h-4 w-4" />
+            还原
+          </Button>
+        </div>
+      </form>
     </div>
+  );
+}
+
+function SettingsGroup({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="settings-group">
+      <div className="panel-title">{title}</div>
+      <div className="mt-4 grid gap-4">{children}</div>
+    </section>
   );
 }
 
@@ -167,19 +186,21 @@ function Field({
   children: ReactNode;
 }) {
   return (
-    <label className="grid gap-2">
-      <span className="text-sm font-medium text-[var(--foreground)]">{label}</span>
-      {children}
-      {error ? <span className="text-xs text-[var(--danger)]">{error}</span> : null}
+    <label className="field-row">
+      <span className="field-label">{label}</span>
+      <span className="min-w-0 flex-1">
+        {children}
+        {error ? <span className="mt-1 block text-xs text-[var(--danger)]">{error}</span> : null}
+      </span>
     </label>
   );
 }
 
 function SummaryRow({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="rounded-2xl border border-[#e3e8ef] bg-[#fafbfc] px-4 py-3">
-      <div className="text-xs uppercase tracking-[0.2em] text-[var(--muted-foreground)]">{label}</div>
-      <div className="mt-2 break-all text-sm text-[var(--foreground)]">{value}</div>
+    <div className="summary-row">
+      <span>{label}</span>
+      <strong title={String(value)}>{value}</strong>
     </div>
   );
 }
